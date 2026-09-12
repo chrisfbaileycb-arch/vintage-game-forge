@@ -16,7 +16,10 @@ export type BellEvent =
   | "lost"
   | "combo"
   | "checkpoint"
-  | "gate";
+  | "gate"
+  | "pop"
+  | "barrel"
+  | "apex";
 
 const NOTES_HZ: Record<BellEvent, number> = {
   brick: 660,
@@ -29,6 +32,9 @@ const NOTES_HZ: Record<BellEvent, number> = {
   combo: 880,
   checkpoint: 987.77,
   gate: 739.99,
+  pop: 1046.5,
+  barrel: 261.63,
+  apex: 1318.5,
 };
 
 export interface FoundryBells {
@@ -109,6 +115,15 @@ export function createFoundryBells(): FoundryBells {
           return;
         case "gate":
           tone(NOTES_HZ.gate, 0.13, 0.06);
+          return;
+        case "pop":
+          tone(NOTES_HZ.pop, 0.15, 0.06);
+          return;
+        case "barrel":
+          tone(NOTES_HZ.barrel, 0.2, 0.07);
+          return;
+        case "apex":
+          tone(NOTES_HZ.apex, 0.4, 0.08);
           return;
       }
     },

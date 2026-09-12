@@ -18,7 +18,7 @@ import type { CartridgeSpec } from "@/lib/game/moulds";
 import { FINISH_OPTIONS, FRAME_OPTIONS, PALETTE_OPTIONS } from "@/lib/game/moulds";
 import { createFoundryBells } from "@/lib/game/bells";
 import { cn } from "@/lib/utils";
-import { Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import { Pause, Play, RotateCcw, ScanLine, Volume2, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const CANVAS_W = 360;
@@ -61,6 +61,7 @@ function CartridgeView({
   const inputRef = useRef<EngineInput>(emptyInput());
   const [hud, setHud] = useState<HudState | null>(null);
   const [muted, setMuted] = useState(true);
+  const [scanlines, setScanlines] = useState(true);
 
   const [cartridge] = useState(() => createCartridge(spec));
 
@@ -250,7 +251,7 @@ function CartridgeView({
       )}
 
       <div
-        className="bezel-riveted paper-lift relative mx-auto w-full max-w-[420px] touch-none select-none rounded-md border-2 bg-secondary/40 p-2"
+        className="crt-curve bezel-riveted paper-lift relative mx-auto w-full max-w-[420px] touch-none select-none rounded-md border-2 bg-black p-2"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -263,6 +264,54 @@ function CartridgeView({
           className="block h-auto w-full rounded-sm"
         />
       </div>
+
+      {/* Virtual d-pad for digging / climbing moulds on touch devices */}
+      {showHud && (spec.mould === "maze" || spec.mould === "burrower" || spec.mould === "scaffolding") && (
+        <div className="mx-auto grid w-40 grid-cols-3 gap-1 sm:hidden">
+          <span />
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Up"
+            onPointerDown={() => (inputRef.current.up = true)}
+            onPointerUp={() => (inputRef.current.up = false)}
+            onPointerLeave={() => (inputRef.current.up = false)}
+          >
+            ↑
+          </Button>
+          <span />
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Left"
+            onPointerDown={() => (inputRef.current.left = true)}
+            onPointerUp={() => (inputRef.current.left = false)}
+            onPointerLeave={() => (inputRef.current.left = false)}
+          >
+            ←
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Down"
+            onPointerDown={() => (inputRef.current.down = true)}
+            onPointerUp={() => (inputRef.current.down = false)}
+            onPointerLeave={() => (inputRef.current.down = false)}
+          >
+            ↓
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Right"
+            onPointerDown={() => (inputRef.current.right = true)}
+            onPointerUp={() => (inputRef.current.right = false)}
+            onPointerLeave={() => (inputRef.current.right = false)}
+          >
+            →
+          </Button>
+        </div>
+      )}
 
       {showHud && hud && (
         <div className="mx-auto flex w-full max-w-[420px] flex-wrap items-center justify-center gap-2">
@@ -299,6 +348,19 @@ function CartridgeView({
               {muted ? "Bells off" : "Bells on"}
             </Button>
           )}
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={scanlines ? "Disable scanline overlay" : "Enable scanline overlay"}
+            onClick={() => {
+              const next = !scanlines;
+              setScanlines(next);
+              cartridge.setScanlines(next);
+            }}
+          >
+            <ScanLine className="size-4" />
+            {scanlines ? "Grille on" : "Grille off"}
+          </Button>
           <p className="font-pressing w-full text-center text-xs text-muted-foreground">
             {isLookMould
               ? "← → turn · ↑ walk · SPACE start · P pause"

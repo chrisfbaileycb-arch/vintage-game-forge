@@ -4,12 +4,12 @@ import { MOULD_OPTIONS } from "./moulds";
 import { PATTERNS, PATTERN_COUNT, getPattern, patternsByMould } from "./patterns";
 
 describe("pattern book", () => {
-  it("holds exactly 50 patterns", () => {
-    expect(PATTERN_COUNT).toBe(50);
-    expect(PATTERNS).toHaveLength(50);
+  it("holds exactly 70 patterns", () => {
+    expect(PATTERN_COUNT).toBe(70);
+    expect(PATTERNS).toHaveLength(70);
   });
 
-  it("spreads ten patterns across each of the five moulds", () => {
+  it("spreads ten patterns across each of the seven moulds", () => {
     const byMould = patternsByMould();
     expect(byMould.size).toBe(MOULD_OPTIONS.length);
     for (const mould of MOULD_OPTIONS) {
@@ -21,7 +21,7 @@ describe("pattern book", () => {
 
   it("gives every pattern a unique id and normalized spec", () => {
     const ids = new Set(PATTERNS.map((p) => p.id));
-    expect(ids.size).toBe(50);
+    expect(ids.size).toBe(70);
     for (const p of PATTERNS) {
       expect(p.name.length).toBeGreaterThan(0);
       expect(p.blurb.length).toBeGreaterThan(0);

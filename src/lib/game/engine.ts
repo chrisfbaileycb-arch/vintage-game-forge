@@ -12,6 +12,22 @@
 
 import type { CartridgeSpec, FinishId, PaletteId, TokenId } from "./moulds";
 import { EFFECT_LIMITS } from "./moulds";
+import {
+  CRT_BLACK,
+  drawBarrelCorners,
+  drawBevelPlate,
+  drawGirder,
+  drawScanlineGrille,
+  glowOff,
+  glowOn,
+  renderDebris,
+  spawnDebris,
+  squashScale,
+  stepDebris,
+  triggerSquash,
+  type Debris,
+  type SquashState,
+} from "./crt";
 
 // ---------------------------------------------------------------------------
 // Palettes
@@ -184,7 +200,10 @@ export type FoundryEvent =
   | "lost"
   | "combo"
   | "checkpoint"
-  | "gate";
+  | "gate"
+  | "pop"
+  | "barrel"
+  | "apex";
 
 export type FoundryListener = (event: FoundryEvent) => void;
 
@@ -197,6 +216,8 @@ export interface CartridgeHandle {
   readonly hud: HudState;
   /** Subscribe to engine events (chiptune bells, HUD flourishes). */
   onEvent(listener: FoundryListener): () => void;
+  /** Toggle the aperture-grille scanline overlay. */
+  setScanlines(on: boolean): void;
 }
 
 /** Test seam: deterministic replacement for Math.random. */
@@ -479,6 +500,17 @@ export function createCartridge(
   let seals = maxSeals;
   let score = 0;
 
+  // ----- CRT & juice state ---------------------------------------------------
+
+  let scanlines = true;
+  const debrisField: Debris[] = [];
+  const squash: SquashState = { t: 0, dx: 0, dy: 0 };
+
+  /** Chunky bouncing debris burst at a world position. */
+  function popDebris(x: number, y: number, colors: string[], count = 6) {
+    spawnDebris(debrisField, x, y, colors, rng, count, 130);
+  }
+
   // ----- Mould: Breaker -------------------------------------------------------
 
   interface Rotor {
@@ -502,6 +534,7 @@ export function createCartridge(
   const bat = { x: W / 2, baseW: 46 + (spec.handling / 3) * 36, w: 0 };
   bat.w = bat.baseW;
   const ball = { x: W / 2, y: 0, vx: 0, vy: 0, r: 6, stuck: true };
+  const ballTrail: { x: number; y: number }[] = [];
   let bricks: Brick[] = [];
   let rotors: Rotor[] = [];
 
@@ -696,6 +729,10 @@ export function createCartridge(
     if (spec.mould === "maze")
       return `Claim every beacon before the fuse burns`;
     if (spec.mould === "flyer") return "Ring the gates, dodge the balloons";
+    if (spec.mould === "burrower")
+      return `Excavate ${burrow.target} buried marks`;
+    if (spec.mould === "scaffolding")
+      return "Climb every tier to reach the apex";
     return "Rout the descending ranks";
   }
 
@@ -722,6 +759,18 @@ export function createCartridge(
       return {
         label: `${Math.floor(flyer.distance * 100)} yards flown`,
         value: (flyer.distance % 10) / 10,
+      };
+    }
+    if (spec.mould === "burrower") {
+      return {
+        label: `${burrow.collected}/${burrow.target} marks`,
+        value: burrow.collected / burrow.target,
+      };
+    }
+    if (spec.mould === "scaffolding") {
+      return {
+        label: `tier ${scaffold.tier + 1}/${SCAFF_TIERS}`,
+        value: (scaffold.tier + 1) / SCAFF_TIERS,
       };
     }
     const total = invaders.alive.length || 1;
@@ -764,6 +813,22 @@ export function createCartridge(
     }
     publishScore(reason);
     if (spec.mould === "breakout") resetBall();
+    if (spec.mould === "burrower") {
+      burrow.px = 10;
+      burrow.py = 0;
+      burrow.dirX = 0;
+      burrow.dirY = 1;
+      burrow.hoseTarget = -1;
+      burrow.hose = 0;
+    }
+    if (spec.mould === "scaffolding") {
+      scaffold.px = 0.12;
+      scaffold.tier = 0;
+      scaffold.py = 0;
+      scaffold.barrels = scaffold.barrels.filter(
+        (b) => Math.abs(b.x - scaffold.px) > 0.1,
+      );
+    }
     if (spec.mould === "maze") {
       maze.elapsed = Math.max(0, maze.elapsed - maze.fuse * 0.25);
       maze.px = 0.5 + 0.001;
@@ -811,7 +876,12 @@ export function createCartridge(
     buildInvaders();
     buildMaze();
     buildFlyer();
+    buildBurrower();
+    buildScaffolding();
     flyerSpawn = 0;
+    scaffoldSpawn = 1.2;
+    input_beam = false;
+    debrisField.length = 0;
     resetBall();
     publishScore();
   }
@@ -1489,10 +1559,14 @@ export function createCartridge(
     else if (spec.mould === "snake") updateSnake(step, input);
     else if (spec.mould === "maze") updateMaze(step, input);
     else if (spec.mould === "flyer") updateFlyer(step, input);
+    else if (spec.mould === "burrower") updateBurrower(step, input);
+    else if (spec.mould === "scaffolding") updateScaffolding(step, input);
     else updateInvaders(step, input);
     tickEffects(step);
     tickBlackout(step);
     stepParticles(step);
+    stepDebris(debrisField, step, field.y + field.h);
+    squashScale(squash, step);
     shakeAmount *= 0.86;
     if (comboTimer > 0) {
       comboTimer = Math.max(0, comboTimer - step);
@@ -1505,22 +1579,20 @@ export function createCartridge(
 
   function render(ctx: CanvasRenderingContext2D) {
     ctx.save();
-    ctx.fillStyle = pal.background;
+    // Authentic pitch-black arcade tube.
+    ctx.fillStyle = CRT_BLACK;
     ctx.fillRect(0, 0, W, H);
 
     if (shakeAmount > 0.05) {
-      ctx.translate((rng() - 0.5) * shakeAmount, (rng() - 0.5) * shakeAmount);
+      ctx.translate(
+        (rng() - 0.5) * 2 + (rng() - 0.5) * shakeAmount,
+        (rng() - 0.5) * 2 + (rng() - 0.5) * shakeAmount,
+      );
     }
 
-    ctx.fillStyle = pal.field;
+    // Cabinet interior behind the playfield.
+    ctx.fillStyle = pal.background;
     ctx.fillRect(field.x, field.y, field.w, field.h);
-
-    ctx.fillStyle = pal.grid;
-    for (let gx = field.x + 12; gx < field.x + field.w; gx += 24) {
-      for (let gy = field.y + 12; gy < field.y + field.h; gy += 24) {
-        ctx.fillRect(gx, gy, 1.5, 1.5);
-      }
-    }
 
     ctx.save();
     ctx.beginPath();
@@ -1531,25 +1603,645 @@ export function createCartridge(
     else if (spec.mould === "snake") renderSnake(ctx);
     else if (spec.mould === "maze") renderMaze(ctx);
     else if (spec.mould === "flyer") renderFlyer(ctx);
+    else if (spec.mould === "burrower") renderBurrower(ctx);
+    else if (spec.mould === "scaffolding") renderScaffolding(ctx);
     else renderInvaders(ctx);
 
     renderParticles(ctx);
-    if (finish.grain) {
-      drawScanlines(ctx, field.x, field.y, field.w, field.h);
-      drawGrain(ctx);
-    } else {
-      drawScanlines(ctx, field.x, field.y, field.w, field.h);
-    }
+    renderDebris(ctx, debrisField);
+    if (finish.grain) drawGrain(ctx);
+    if (scanlines) drawScanlineGrille(ctx, field.x, field.y, field.w, field.h);
     if (blackoutOn) drawBlackout(ctx);
     ctx.restore();
 
     drawMarquee(ctx);
     drawFrameOverlay(ctx);
     if (finish.glow) drawGlow(ctx);
+    drawBarrelCorners(ctx, 0, 0, W, H);
     drawVignette(ctx);
 
     if (state !== "playing") drawStateCard(ctx);
     ctx.restore();
+  }
+
+  // ----- Mould: Burrower (subterranean excavation) ---------------------------
+
+  const BURROW_COLS = 20;
+  const BURROW_ROWS = 26;
+  // Four geological strata, top to bottom.
+  const STRATA_COLORS = ["#c98f3d", "#a85c32", "#6e3a24", "#3d2140"];
+
+  const burrow = {
+    grid: [] as boolean[], // true = dug open
+    px: 10,
+    py: 1,
+    dirX: 0,
+    dirY: 1,
+    marks: [] as { x: number; y: number }[],
+    collected: 0,
+    target: 8,
+    pursuers: [] as { x: number; y: number; dx: number; dy: number; ghost: number; pops: number }[],
+    hose: 0, // remaining inflate pulses on a caught pursuer
+    hoseTarget: -1,
+    boulders: [] as { x: number; y: number; falling: boolean }[],
+    ghostTimer: 0,
+  };
+
+  function bgIdx(x: number, y: number) {
+    return y * BURROW_COLS + x;
+  }
+
+  function bgOpen(x: number, y: number) {
+    if (x < 0 || y < 0 || x >= BURROW_COLS || y >= BURROW_ROWS) return false;
+    return burrow.grid[bgIdx(x, y)];
+  }
+
+  function bgDig(x: number, y: number) {
+    if (x < 0 || y < 0 || x >= BURROW_COLS || y >= BURROW_ROWS) return;
+    burrow.grid[bgIdx(x, y)] = true;
+  }
+
+  function strataOf(row: number) {
+    const band = BURROW_ROWS / 4;
+    return Math.min(3, Math.floor(row / band));
+  }
+
+  function buildBurrower() {
+    burrow.grid = new Array(BURROW_COLS * BURROW_ROWS).fill(false);
+    // Starter gallery: top row open + a shaft down the middle.
+    for (let x = 0; x < BURROW_COLS; x++) bgDig(x, 0);
+    for (let y = 0; y < 4; y++) bgDig(10, y);
+    burrow.px = 10;
+    burrow.py = 0;
+    burrow.dirX = 0;
+    burrow.dirY = 1;
+    burrow.collected = 0;
+    burrow.target = 8;
+    burrow.marks = [];
+    burrow.pursuers = [];
+    burrow.hose = 0;
+    burrow.hoseTarget = -1;
+    burrow.boulders = [];
+    burrow.ghostTimer = 0;
+    const pursuerCount = 1 + Math.floor(clamp(spec.gridDensity, 0, 9) / 2);
+    for (let i = 0; i < pursuerCount; i++) {
+      burrow.pursuers.push({ x: 2 + i * 6, y: 0, dx: 1, dy: 0, ghost: 0, pops: 0 });
+    }
+    // Bury marks across the lower three strata.
+    for (let i = 0; i < burrow.target; i++) {
+      burrow.marks.push({
+        x: randInt(BURROW_COLS),
+        y: 6 + randInt(BURROW_ROWS - 7),
+      });
+    }
+    // Overhead boulders embedded in strata.
+    const boulderCount = 2 + Math.floor(clamp(spec.hazards, 0, 9) / 3);
+    for (let i = 0; i < boulderCount; i++) {
+      const bx = 1 + randInt(BURROW_COLS - 2);
+      const by = 3 + randInt(BURROW_ROWS - 5);
+      burrow.boulders.push({ x: bx, y: by, falling: false });
+    }
+    refillTokenBudget();
+  }
+
+  function updateBurrower(dt: number, input: EngineInput) {
+    const speed = (2.6 + spec.pace * 0.25) * dt;
+    let dirSet = false;
+    if (input.left) {
+      burrow.dirX = -1;
+      burrow.dirY = 0;
+      dirSet = true;
+    } else if (input.right) {
+      burrow.dirX = 1;
+      burrow.dirY = 0;
+      dirSet = true;
+    } else if (input.up) {
+      burrow.dirX = 0;
+      burrow.dirY = -1;
+      dirSet = true;
+    } else if (input.down) {
+      burrow.dirX = 0;
+      burrow.dirY = 1;
+      dirSet = true;
+    }
+    if (dirSet) triggerSquash(squash, burrow.dirX, burrow.dirY);
+
+    // freeform movement with continuous digging
+    const nx = burrow.px + burrow.dirX * speed;
+    const ny = burrow.py + burrow.dirY * speed;
+    if (
+      nx > 0.2 &&
+      nx < BURROW_COLS - 0.2 &&
+      ny > 0.2 &&
+      ny < BURROW_ROWS - 0.2
+    ) {
+      burrow.px = nx;
+      burrow.py = ny;
+      const cx = Math.floor(burrow.px);
+      const cy = Math.floor(burrow.py);
+      if (!bgOpen(cx, cy)) {
+        bgDig(cx, cy);
+        score += windfallScore(2);
+      }
+    }
+
+    // collect marks
+    for (let i = burrow.marks.length - 1; i >= 0; i--) {
+      const m = burrow.marks[i];
+      if (
+        Math.abs(m.x + 0.5 - burrow.px) < 0.6 &&
+        Math.abs(m.y + 0.5 - burrow.py) < 0.6
+      ) {
+        burrow.marks.splice(i, 1);
+        burrow.collected += 1;
+        score += windfallScore(scoreCombo(100));
+        emit("mark");
+        emit("combo");
+        const cell = field.w / BURROW_COLS;
+        popDebris(
+          field.x + (m.x + 0.5) * cell,
+          field.y + (m.y + 0.5) * cell,
+          ["#ffd23f", pal.accent, "#ffffff"],
+          8,
+        );
+        shake(1.5);
+        triggerSquash(squash, 0, -1);
+      }
+    }
+
+    // hose: hold fire to inflate the pursuer you face (up to 3 tiles)
+    const pursuers = burrow.pursuers;
+    if (input.fire) {
+      if (burrow.hoseTarget < 0) {
+        for (let i = 0; i < pursuers.length; i++) {
+          const p = pursuers[i];
+          const rx = p.x + 0.5 - burrow.px;
+          const ry = p.y + 0.5 - burrow.py;
+          const facing = rx * burrow.dirX + ry * burrow.dirY;
+          const lateral = Math.abs(rx * burrow.dirY - ry * burrow.dirX);
+          if (facing > 0 && facing <= 3 && lateral < 0.8) {
+            burrow.hoseTarget = i;
+            burrow.hose = 0;
+            break;
+          }
+        }
+      }
+      if (burrow.hoseTarget >= 0) {
+        burrow.hose += dt;
+        const pulses = Math.floor(burrow.hose / 1.0); // one pulse per second
+        const p = pursuers[burrow.hoseTarget];
+        if (p && pulses >= 3) {
+          // popped!
+          p.pops += 1;
+          score += windfallScore(200);
+          emit("pop");
+          popDebris(field.x + (p.x + 0.5) * (field.w / BURROW_COLS), field.y + (p.y + 0.5) * (field.h / BURROW_ROWS), ["#ff5a5a", "#ffd23f", "#ffffff"], 10);
+          shake(2.5);
+          pursuers.splice(burrow.hoseTarget, 1);
+          burrow.hoseTarget = -1;
+          burrow.hose = 0;
+        }
+      }
+    } else {
+      burrow.hoseTarget = -1;
+      burrow.hose = 0;
+    }
+
+    // pursuers: patrol open tunnels, ghost through strata when idle/aggro
+    burrow.ghostTimer += dt;
+    const ghostPhase = burrow.ghostTimer % 12;
+    const ghosting = ghostPhase > 8; // aggressive window
+    for (const p of pursuers) {
+      if (ghosting) {
+        p.ghost = Math.min(1, p.ghost + dt * 0.7);
+        // drift slowly toward player through anything
+        const dx = burrow.px - p.x;
+        const dy = burrow.py - p.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const gs = 0.55 * dt;
+        p.x += (dx / d) * gs;
+        p.y += (dy / d) * gs;
+      } else {
+        p.ghost = Math.max(0, p.ghost - dt * 0.7);
+        // patrol along open cells
+        const pxC = Math.floor(p.x);
+        const pyC = Math.floor(p.y);
+        if (!bgOpen(pxC + p.dx, pyC + p.dy)) {
+          // pick a new open direction
+          const dirs = [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ].filter(([dx, dy]) => bgOpen(pxC + dx, pyC + dy));
+          if (dirs.length) {
+            const pick = dirs[randInt(dirs.length)];
+            p.dx = pick[0];
+            p.dy = pick[1];
+          } else {
+            p.dx = 0;
+            p.dy = 0;
+          }
+        }
+        p.x += p.dx * (1.3 + spec.pace * 0.12) * dt;
+        p.y += p.dy * (1.3 + spec.pace * 0.12) * dt;
+      }
+      // catch the player
+      if (
+        Math.abs(p.x + 0.5 - burrow.px) < 0.55 &&
+        Math.abs(p.y + 0.5 - burrow.py) < 0.55 &&
+        p.ghost < 0.5
+      ) {
+        loseRun("A pursuer caught the burrower");
+        return;
+      }
+    }
+
+    // boulders fall when the cell below them is dug
+    for (const b of burrow.boulders) {
+      const belowOpen = bgOpen(b.x, b.y + 1);
+      const playerBelow =
+        Math.floor(burrow.px) === b.x && burrow.py > b.y + 1;
+      if (!b.falling && (belowOpen || playerBelow)) b.falling = true;
+      if (b.falling) {
+        b.y += (3.2 + spec.pace * 0.3) * dt;
+        // crush pursuers
+        for (let i = pursuers.length - 1; i >= 0; i--) {
+          const p = pursuers[i];
+          if (
+            Math.floor(p.x) === b.x &&
+            Math.abs(p.y - b.y) < 0.7
+          ) {
+            pursuers.splice(i, 1);
+            score += windfallScore(200);
+            emit("pop");
+            shake(2.5);
+            popDebris(field.x + (p.x + 0.5) * (field.w / BURROW_COLS), field.y + (p.y + 0.5) * (field.h / BURROW_ROWS), [STRATA_COLORS[2], "#555", "#888"], 10);
+          }
+        }
+        // crush the player
+        if (
+          Math.floor(burrow.px) === b.x &&
+          Math.abs(burrow.py - b.y) < 0.6
+        ) {
+          b.falling = false;
+          b.y = 1 + randInt(BURROW_ROWS - 3);
+          loseRun("A boulder came down the shaft");
+          return;
+        }
+        if (b.y > BURROW_ROWS) {
+          b.falling = false;
+          b.y = 1 + randInt(BURROW_ROWS - 3);
+        }
+      }
+    }
+
+    if (burrow.collected >= burrow.target) winRun();
+  }
+
+  function renderBurrower(ctx: CanvasRenderingContext2D) {
+    const cellW = field.w / BURROW_COLS;
+    const cellH = field.h / BURROW_ROWS;
+    // strata bands
+    for (let row = 0; row < BURROW_ROWS; row++) {
+      const s = strataOf(row);
+      ctx.fillStyle = STRATA_COLORS[s];
+      ctx.fillRect(field.x, field.y + row * cellH, field.w, cellH + 1);
+      // stratification lines
+      if (row % 4 === 3) {
+        ctx.fillStyle = "rgba(0,0,0,0.18)";
+        ctx.fillRect(field.x, field.y + (row + 1) * cellH - 1, field.w, 1);
+      }
+    }
+    // dug tunnels: dark negative space with inset shadow
+    for (let y = 0; y < BURROW_ROWS; y++) {
+      for (let x = 0; x < BURROW_COLS; x++) {
+        if (!bgOpen(x, y)) continue;
+        const px = field.x + x * cellW;
+        const py = field.y + y * cellH;
+        ctx.fillStyle = "#0a0608";
+        ctx.fillRect(px, py, cellW + 1, cellH + 1);
+        ctx.strokeStyle = "rgba(0,0,0,0.5)";
+        ctx.strokeRect(px + 1.5, py + 1.5, cellW - 3, cellH - 3);
+      }
+    }
+    // buried marks glow softly
+    glowOn(ctx, "#ffd23f", 6);
+    ctx.fillStyle = "#ffd23f";
+    for (const m of burrow.marks) {
+      const px = field.x + (m.x + 0.5) * cellW;
+      const py = field.y + (m.y + 0.5) * cellH;
+      ctx.fillRect(px - 3, py - 3, 6, 6);
+    }
+    glowOff(ctx);
+    // boulders (bevelled plates)
+    for (const b of burrow.boulders) {
+      drawBevelPlate(
+        ctx,
+        field.x + b.x * cellW + 1,
+        field.y + b.y * cellH + 1,
+        cellW - 2,
+        cellH - 2,
+        "#7d7d85",
+        "#c8c8d4",
+        2,
+      );
+    }
+    // pursuers (inflate with hose progress)
+    for (const p of burrow.pursuers) {
+      const px = field.x + (p.x + 0.5) * cellW;
+      const py = field.y + (p.y + 0.5) * cellH;
+      const inflate = 1 + (burrow.hoseTarget >= 0 ? Math.floor(burrow.hose) * 0.25 : 0);
+      const r = cellW * 0.34 * inflate;
+      ctx.globalAlpha = p.ghost > 0 ? 0.45 + p.ghost * 0.2 : 1;
+      glowOn(ctx, p.ghost > 0.5 ? "#b06aff" : "#ff5a5a", 6);
+      ctx.fillStyle = p.ghost > 0.5 ? "#b06aff" : "#ff5a5a";
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+      glowOff(ctx);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(px - r * 0.5, py - r * 0.3, r * 0.35, r * 0.35);
+      ctx.fillRect(px + r * 0.15, py - r * 0.3, r * 0.35, r * 0.35);
+      ctx.globalAlpha = 1;
+    }
+    // the burrower (squash & stretch)
+    const { sx, sy } = squashScale(squash, 0);
+    const bpx = field.x + burrow.px * cellW;
+    const bpy = field.y + burrow.py * cellH;
+    glowOn(ctx, "#5ad7ff", 6);
+    ctx.fillStyle = "#5ad7ff";
+    ctx.beginPath();
+    ctx.ellipse(bpx, bpy, (cellW * 0.38 * sx), (cellH * 0.38 * sy), 0, 0, Math.PI * 2);
+    ctx.fill();
+    glowOff(ctx);
+    ctx.fillStyle = "#0a0608";
+    ctx.fillRect(bpx - 3, bpy - 2, 2, 2);
+    ctx.fillRect(bpx + 1, bpy - 2, 2, 2);
+    // hose beam when pumping
+    if (burrow.hoseTarget >= 0 && input_beam) {
+      const p = burrow.pursuers[burrow.hoseTarget];
+      if (p) {
+        glowOn(ctx, "#ffd23f", 6);
+        ctx.strokeStyle = "#ffd23f";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bpx, bpy);
+        ctx.lineTo(field.x + (p.x + 0.5) * cellW, field.y + (p.y + 0.5) * cellH);
+        ctx.stroke();
+        glowOff(ctx);
+        ctx.lineWidth = 1;
+      }
+    }
+  }
+
+  // holder for hose beam visibility (set in update, read in render)
+  let input_beam = false;
+
+  // ----- Mould: Scaffolding (tiers, inclines, barrels) -------------------------
+
+  const SCAFF_TIERS = 6;
+  const scaffold = {
+    px: 0.12,
+    py: 0,
+    vx: 0,
+    vy: 0,
+    onLadder: false,
+    facing: 1,
+    tier: 0,
+    barrels: [] as { x: number; y: number; tier: number; dx: number; roll: number }[],
+    mallet: 0, // seconds remaining
+    malletItem: { x: 0.5, tier: 3, taken: false },
+    apexReached: false,
+  };
+
+  /** Tier y positions (normalized 0..1 from bottom); zigzag incline direction per tier. */
+  function scaffoldTierY(tier: number) {
+    return 0.16 + (SCAFF_TIERS - 1 - tier) * (0.72 / (SCAFF_TIERS - 1));
+  }
+  function scaffoldTierDir(tier: number) {
+    return tier % 2 === 0 ? 1 : -1;
+  }
+
+  function buildScaffolding() {
+    scaffold.px = 0.12;
+    scaffold.py = 0;
+    scaffold.vx = 0;
+    scaffold.vy = 0;
+    scaffold.tier = 0;
+    scaffold.facing = 1;
+    scaffold.barrels = [];
+    scaffold.mallet = 0;
+    scaffold.malletItem = { x: 0.5, tier: 3, taken: false };
+    scaffold.apexReached = false;
+  }
+
+  let scaffoldSpawn = 1.2;
+
+  function updateScaffolding(dt: number, input: EngineInput) {
+    const runSpeed = 0.34 + spec.handling * 0.02;
+    const grav = 1.9;
+    const tier = scaffold.tier;
+    const tierY = scaffoldTierY(tier);
+
+    // horizontal run
+    let move = 0;
+    if (input.left) move = -1;
+    if (input.right) move = 1;
+    if (move !== 0) {
+      scaffold.facing = move;
+      scaffold.vx = move * runSpeed;
+      if (move !== scaffold.facing) triggerSquash(squash, move, 0);
+    } else {
+      scaffold.vx = 0;
+    }
+    scaffold.px = clamp(scaffold.px + scaffold.vx * dt, 0.03, 0.97);
+
+    // ladders at alternating ends per tier; climb with up/down
+    const ladderX = scaffoldTierDir(tier) === 1 ? 0.9 : 0.1;
+    const nearLadder = Math.abs(scaffold.px - ladderX) < 0.05;
+    scaffold.onLadder = nearLadder;
+    if (nearLadder && input.up && tier < SCAFF_TIERS - 1) {
+      scaffold.py -= 0.5 * dt;
+      if (scaffold.py < -0.02) {
+        scaffold.tier += 1;
+        scaffold.py = 0;
+        score += windfallScore(80);
+        emit("checkpoint");
+        if (scaffold.tier === SCAFF_TIERS - 1) {
+          scaffold.apexReached = true;
+          emit("apex");
+          winRun();
+          return;
+        }
+      }
+    } else if (nearLadder && input.down && tier > 0 && scaffold.py < 0) {
+      scaffold.py += 0.5 * dt;
+      if (scaffold.py > 0) {
+        scaffold.tier -= 1;
+        scaffold.py = 0;
+      }
+    } else if (!nearLadder) {
+      scaffold.py = Math.min(0, scaffold.py + grav * dt * 0.2);
+    }
+
+    // barrels spawn at the apex and roll down
+    scaffoldSpawn -= dt;
+    if (scaffoldSpawn <= 0) {
+      scaffoldSpawn = Math.max(0.8, 2.2 - spec.pace * 0.25);
+      scaffold.barrels.push({
+        x: scaffoldTierDir(SCAFF_TIERS - 1) === 1 ? 0.06 : 0.94,
+        y: 0,
+        tier: SCAFF_TIERS - 1,
+        dx: scaffoldTierDir(SCAFF_TIERS - 1),
+        roll: 0,
+      });
+    }
+    for (let i = scaffold.barrels.length - 1; i >= 0; i--) {
+      const b = scaffold.barrels[i];
+      b.roll += dt * 9 * b.dx;
+      b.x += b.dx * (0.16 + spec.pace * 0.025) * dt;
+      const edge = b.dx === 1 ? 0.94 : 0.06;
+      if (
+        (b.dx === 1 && b.x >= edge) ||
+        (b.dx === -1 && b.x <= edge)
+      ) {
+        if (b.tier > 0) {
+          b.tier -= 1;
+          b.dx = scaffoldTierDir(b.tier);
+          b.x = edge;
+        } else {
+          scaffold.barrels.splice(i, 1);
+          continue;
+        }
+      }
+      // mallet smash
+      if (
+        scaffold.mallet > 0 &&
+        b.tier === scaffold.tier &&
+        Math.abs(b.x - scaffold.px) < 0.05
+      ) {
+        scaffold.barrels.splice(i, 1);
+        score += windfallScore(scoreCombo(200));
+        emit("barrel");
+        popDebris(
+          field.x + b.x * field.w,
+          field.y + (1 - scaffoldTierY(b.tier)) * field.h,
+          ["#FF0055", "#ffd23f", "#fff"],
+          8,
+        );
+        shake(2);
+        continue;
+      }
+      // hit the player
+      if (
+        b.tier === scaffold.tier &&
+        Math.abs(b.x - scaffold.px) < 0.045 &&
+        scaffold.mallet <= 0
+      ) {
+        scaffold.barrels.splice(i, 1);
+        loseRun("A barrel caught the climber");
+        return;
+      }
+    }
+
+    // mallet pickup
+    if (
+      !scaffold.malletItem.taken &&
+      scaffold.tier === scaffold.malletItem.tier &&
+      Math.abs(scaffold.px - scaffold.malletItem.x) < 0.05
+    ) {
+      scaffold.malletItem.taken = true;
+      scaffold.mallet = 8;
+      emit("token");
+    }
+    if (scaffold.mallet > 0) scaffold.mallet = Math.max(0, scaffold.mallet - dt);
+  }
+
+  function renderScaffolding(ctx: CanvasRenderingContext2D) {
+    // starfield backdrop twinkle
+    ctx.fillStyle = CRT_BLACK;
+    ctx.fillRect(field.x, field.y, field.w, field.h);
+    for (let i = 0; i < 40; i++) {
+      const sx2 = field.x + ((i * 89) % field.w);
+      const sy2 = field.y + ((i * 149) % field.h);
+      const tw = 0.4 + 0.6 * Math.abs(Math.sin(i * 2.7 + performance.now() * 0.002));
+      ctx.fillStyle = `rgba(255,255,255,${0.18 * tw})`;
+      ctx.fillRect(sx2, sy2, 1.5, 1.5);
+    }
+    // tiers as magenta/crimson bevelled girders with rivets
+    for (let t = 0; t < SCAFF_TIERS; t++) {
+      const y = field.y + (1 - scaffoldTierY(t)) * field.h;
+      drawGirder(
+        ctx,
+        field.x,
+        y,
+        field.w,
+        10,
+        "#FF0055",
+        "#ff77aa",
+        "#ffd23f",
+      );
+      // ladder rails at the tier's ladder end
+      const lx = scaffoldTierDir(t) === 1 ? 0.9 : 0.1;
+      const topY = field.y + (1 - scaffoldTierY(t + 1 < SCAFF_TIERS ? t + 1 : t)) * field.h;
+      ctx.strokeStyle = "#ffd23f";
+      glowOn(ctx, "#ffd23f", 4);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(field.x + lx * field.w, y);
+      ctx.lineTo(field.x + lx * field.w, topY);
+      ctx.stroke();
+      glowOff(ctx);
+      for (let rung = 0; rung < 5; rung++) {
+        const ry = y - (rung + 0.5) * ((y - topY) / 5);
+        ctx.beginPath();
+        ctx.moveTo(field.x + lx * field.w - 6, ry);
+        ctx.lineTo(field.x + lx * field.w + 6, ry);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+    // mallet pickup
+    if (!scaffold.malletItem.taken) {
+      const mx = field.x + scaffold.malletItem.x * field.w;
+      const my = field.y + (1 - scaffoldTierY(scaffold.malletItem.tier)) * field.h - 18;
+      glowOn(ctx, "#ffd23f", 6);
+      ctx.fillStyle = "#ffd23f";
+      ctx.fillRect(mx - 4, my - 10, 8, 8);
+      ctx.fillRect(mx - 1.5, my - 2, 3, 10);
+      glowOff(ctx);
+    }
+    // barrels rolling down inclines
+    for (const b of scaffold.barrels) {
+      const bx = field.x + b.x * field.w;
+      const by = field.y + (1 - scaffoldTierY(b.tier)) * field.h - 8;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(b.roll);
+      glowOn(ctx, "#ff8866", 5);
+      ctx.fillStyle = "#ff8866";
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      glowOff(ctx);
+      ctx.strokeStyle = "#662211";
+      ctx.stroke();
+      ctx.fillStyle = "#662211";
+      ctx.fillRect(-1.5, -6, 3, 12);
+      ctx.fillRect(-6, -1.5, 12, 3);
+      ctx.restore();
+    }
+    // the climber (squash & stretch)
+    const { sx, sy } = squashScale(squash, 0);
+    const cxp = field.x + scaffold.px * field.w;
+    const cyp = field.y + (1 - scaffoldTierY(scaffold.tier)) * field.h - 12 + scaffold.py * 40;
+    glowOn(ctx, "#5ad7ff", 6);
+    ctx.fillStyle = scaffold.mallet > 0 ? "#ffd23f" : "#5ad7ff";
+    ctx.fillRect(cxp - 5 * sx, cyp - 12 * sy, 10 * sx, 12 * sy);
+    glowOff(ctx);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(cxp - 3 * sx, cyp - 15 * sy, 6 * sx, 4 * sy);
   }
 
   // ----- Mould: Stereoscope rendering (raycast walls) ------------------------
@@ -1564,12 +2256,26 @@ export function createCartridge(
     const floorY = field.y + field.h * 0.62;
     ctx.fillStyle = sky;
     ctx.fillRect(field.x, field.y, field.w, floorY - field.y);
-    ctx.fillStyle = withAlpha(pal.grid, 0.55);
+    // Vector-cabinet floor grid: perspective receding lines + rungs.
+    ctx.fillStyle = withAlpha(pal.grid, 0.4);
     ctx.fillRect(field.x, floorY, field.w, field.y + field.h - floorY);
-    ctx.fillStyle = withAlpha(pal.grid, 0.35);
+    ctx.strokeStyle = "rgba(94, 234, 212, 0.5)";
+    ctx.lineWidth = 1;
+    const vpx = cx;
+    for (let i = 0; i <= 12; i++) {
+      const x = field.x + (i / 12) * field.w;
+      ctx.beginPath();
+      ctx.moveTo(vpx, floorY);
+      ctx.lineTo(x, field.y + field.h);
+      ctx.stroke();
+    }
     for (let i = 0; i < 26; i++) {
       const y = floorY + (i / 26) ** 1.6 * (field.y + field.h - floorY);
-      ctx.fillRect(field.x, y, field.w, 1);
+      ctx.strokeStyle = `rgba(94, 234, 212, ${0.08 + (i / 26) * 0.3})`;
+      ctx.beginPath();
+      ctx.moveTo(field.x, y);
+      ctx.lineTo(field.x + field.w, y);
+      ctx.stroke();
     }
     for (let i = 0; i < rays; i++) {
       const angle = maze.heading - fovHalf + (i / (rays - 1)) * fovHalf * 2;
@@ -1727,16 +2433,22 @@ export function createCartridge(
     }
   }
 
+  // Classic arcade brick row bands: red, orange, amber, emerald, azure.
+  const ARCADE_ROW_COLORS = [
+    "#ff3344",
+    "#ff7733",
+    "#ffcc33",
+    "#33cc66",
+    "#33aaff",
+  ];
+
   function renderBreakout(ctx: CanvasRenderingContext2D) {
-    const tones = [pal.ink, pal.accent, withAlpha(pal.ink, 0.75)];
     for (const brick of bricks) {
       if (!brick.alive) continue;
-      ctx.fillStyle = tones[brick.tone];
-      ctx.fillRect(brick.x, brick.y, brick.w, brick.h);
-      ctx.strokeStyle = withAlpha(pal.ink, 0.35);
-      ctx.strokeRect(brick.x + 0.5, brick.y + 0.5, brick.w - 1, brick.h - 1);
+      const band = ARCADE_ROW_COLORS[brick.tone % ARCADE_ROW_COLORS.length];
+      drawBevelPlate(ctx, brick.x, brick.y, brick.w, brick.h, band, "#ffffff", 2);
       if (brick.hits > 1) {
-        ctx.strokeStyle = withAlpha(pal.accent, 0.9);
+        ctx.strokeStyle = withAlpha("#ffffff", 0.9);
         ctx.strokeRect(brick.x + 2.5, brick.y + 2.5, brick.w - 5, brick.h - 5);
       }
     }
@@ -1762,21 +2474,38 @@ export function createCartridge(
 
     const batY = field.y + field.h - 26;
     const effW = bat.baseW * widenFactor;
-    ctx.fillStyle = pal.ink;
-    ctx.fillRect(bat.x - effW / 2, batY, effW, 12);
-    ctx.fillStyle = pal.accent;
-    ctx.fillRect(bat.x - effW / 2, batY, effW, 3);
+    // glossy paddle with specular streak
+    drawBevelPlate(ctx, bat.x - effW / 2, batY, effW, 12, pal.accent, "#ffffff", 2);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillRect(bat.x - effW / 2 + 4, batY + 2, Math.max(4, effW * 0.25), 2);
     if (widenTimer > 0) {
-      ctx.strokeStyle = withAlpha("#c9a25a", 0.9);
+      glowOn(ctx, "#ffd23f", 6);
+      ctx.strokeStyle = "#ffd23f";
       ctx.strokeRect(bat.x - effW / 2 - 2, batY - 2, effW + 4, 16);
+      glowOff(ctx);
     }
 
-    ctx.fillStyle = pal.accent;
+    // ball with phosphor glow + fading trail
+    ballTrail.push({ x: ball.x, y: ball.y });
+    if (ballTrail.length > 8) ballTrail.shift();
+    for (let i = 0; i < ballTrail.length; i++) {
+      const t = ballTrail[i];
+      const a = (i / ballTrail.length) * 0.4;
+      ctx.fillStyle = withAlpha("#ffffff", a);
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, ball.r * (0.4 + (i / ballTrail.length) * 0.5), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    glowOn(ctx, "#ffffff", 6);
+    ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = withAlpha(pal.ink, 0.6);
-    ctx.stroke();
+    glowOff(ctx);
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.arc(ball.x - 2, ball.y - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function renderSnake(ctx: CanvasRenderingContext2D) {
@@ -1802,9 +2531,30 @@ export function createCartridge(
     }
 
     snake.cells.forEach((c, i) => {
-      const pad = i === 0 ? 2 : 4;
-      ctx.fillStyle = i === 0 ? pal.ink : withAlpha(pal.ink, 0.82);
-      ctx.fillRect(ox + c.x * cs + pad, oy + c.y * cs + pad, cs - pad * 2, cs - pad * 2);
+      // Spherical beveled bead with radial gradient + spine glow every 3rd seg.
+      const bx = ox + c.x * cs + cs / 2;
+      const by = oy + c.y * cs + cs / 2;
+      const r = (cs - (i === 0 ? 4 : 8)) / 2;
+      const g = ctx.createRadialGradient(bx - r * 0.35, by - r * 0.35, r * 0.15, bx, by, r);
+      if (i === 0) {
+        g.addColorStop(0, "#d0fff0");
+        g.addColorStop(0.5, "#5ad7a0");
+        g.addColorStop(1, "#0d5c3a");
+      } else {
+        g.addColorStop(0, "#c8f5ff");
+        g.addColorStop(0.5, "#33bbdd");
+        g.addColorStop(1, "#0d3a5c");
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(bx, by, r, 0, Math.PI * 2);
+      ctx.fill();
+      if (i % 3 === 0) {
+        glowOn(ctx, "#5ad7ff", 6);
+        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.stroke();
+        glowOff(ctx);
+      }
     });
 
     for (const t of tokens) {
@@ -1812,16 +2562,31 @@ export function createCartridge(
     }
   }
 
+  // Neon invader ranks: hazard yellow, electric cyan, hot magenta.
+  const INVADER_NEON = ["#ffe135", "#00e5ff", "#ff2fd6"];
+
   function renderInvaders(ctx: CanvasRenderingContext2D) {
+    // starfield parallax twinkle in the CRT background
+    const tNow = performance.now() * 0.002;
+    for (let i = 0; i < 46; i++) {
+      const sx2 = field.x + ((i * 97 + Math.floor(flyer.distance * 8)) % field.w);
+      const sy2 = field.y + ((i * 151) % field.h);
+      const tw = 0.35 + 0.65 * Math.abs(Math.sin(i * 2.3 + tNow + i % 5));
+      ctx.fillStyle = `rgba(255,255,255,${0.22 * tw})`;
+      ctx.fillRect(sx2, sy2, 1.5, 1.5);
+    }
     for (let i = 0; i < invaders.alive.length; i++) {
       if (!invaders.alive[i]) continue;
       const col = i % invaders.cols;
       const row = Math.floor(i / invaders.cols);
       const p = sentinelPos(col, row);
-      ctx.fillStyle = row % 2 === 0 ? pal.ink : pal.accent;
+      const neon = INVADER_NEON[row % INVADER_NEON.length];
+      glowOn(ctx, neon, 6);
+      ctx.fillStyle = neon;
       ctx.fillRect(p.x - p.s / 2, p.y - p.s / 2, p.s, p.s * 0.72);
       ctx.fillRect(p.x - p.s * 0.18, p.y - p.s / 2 - p.s * 0.2, p.s * 0.36, p.s * 0.2);
-      ctx.fillStyle = pal.field;
+      glowOff(ctx);
+      ctx.fillStyle = "#050508";
       ctx.fillRect(p.x - p.s * 0.3, p.y, p.s * 0.16, p.s * 0.16);
       ctx.fillRect(p.x + p.s * 0.14, p.y, p.s * 0.16, p.s * 0.16);
     }
@@ -2064,6 +2829,9 @@ export function createCartridge(
       return () => {
         listeners.delete(listener);
       };
+    },
+    setScanlines(on) {
+      scanlines = on;
     },
   };
 }

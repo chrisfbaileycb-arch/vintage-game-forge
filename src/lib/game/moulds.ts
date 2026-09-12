@@ -10,7 +10,9 @@ export type MouldKind =
   | "snake"
   | "invaders"
   | "maze"
-  | "flyer";
+  | "flyer"
+  | "burrower"
+  | "scaffolding";
 
 export interface CartridgeSpec {
   /** Which preset engine executes this spec. */
@@ -156,6 +158,8 @@ export const DIAL_RANGES = {
       invaders: 5,
       maze: 5,
       flyer: 5,
+      burrower: 5,
+      scaffolding: 5,
     } as Record<MouldKind, number>,
   },
   hazards: { min: 0, max: 9 },
@@ -205,6 +209,20 @@ export const MOULD_OPTIONS: {
     blurb: "Bank a biplane down a scrolling aerodrome, threading balloon barrages and ringing gates for bonus pay.",
     dials: ["Barrage density", "Wind pace", "Tokens", "Twist"],
   },
+  {
+    id: "burrower",
+    name: "Mould №6 — The Burrower",
+    tagline: "Subterranean excavation & air-pump physics",
+    blurb: "Carve freeform tunnels through four strata of soil to retrieve buried marks. Pursuers patrol open tunnels and ghost through solid rock — inflate them with your tethered hose, or drop boulders from above.",
+    dials: ["Pursuer count", "Pump handling", "Tokens", "Twist"],
+  },
+  {
+    id: "scaffolding",
+    name: "Mould №7 — The Scaffolding",
+    tagline: "Tiers, inclines & barrel dodging",
+    blurb: "Ascend zigzagging girder tiers while gravity rolls hazardous drums down the inclines. Climb ladders, time your jumps, and grab the mallet to smash barrels for double marks.",
+    dials: ["Barrel rate", "Climb handling", "Tokens", "Twist"],
+  },
 ];
 
 export const MOULD_BASE_PACE: Record<MouldKind, number> = {
@@ -213,6 +231,8 @@ export const MOULD_BASE_PACE: Record<MouldKind, number> = {
   invaders: 2,
   maze: 3,
   flyer: 3,
+  burrower: 3,
+  scaffolding: 3,
 };
 
 /** Parse an unknown value into a valid palette, else default. */
@@ -257,7 +277,9 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
     mouldRaw === "snake" ||
     mouldRaw === "invaders" ||
     mouldRaw === "maze" ||
-    mouldRaw === "flyer"
+    mouldRaw === "flyer" ||
+    mouldRaw === "burrower" ||
+    mouldRaw === "scaffolding"
       ? mouldRaw
       : "breakout";
 
@@ -345,6 +367,8 @@ export function describeSpec(spec: CartridgeSpec): string[] {
   parts.push(DIAL_TERMS.handling.toLowerCase());
   if (spec.mould === "maze") parts.push(`fuse ${100 + spec.pace * 30}s`);
   if (spec.mould === "flyer") parts.push(`wind pace ${spec.pace}/5`);
+  if (spec.mould === "burrower") parts.push(`pursuers ${1 + Math.floor(spec.gridDensity / 2)}`);
+  if (spec.mould === "scaffolding") parts.push(`barrel ${spec.pace}/5`);
   if (spec.hazards > 0) parts.push(`${spec.hazards} fixtures`);
   if (spec.tokens > 0) parts.push(`${spec.tokens} tokens`);
   if (spec.hue > 0) parts.push(`toned ${spec.hue}°`);
