@@ -534,6 +534,7 @@ export function createCartridge(
   const bat = { x: W / 2, baseW: 46 + (spec.handling / 3) * 36, w: 0 };
   bat.w = bat.baseW;
   const ball = { x: W / 2, y: 0, vx: 0, vy: 0, r: 6, stuck: true };
+  /** Fading position history for the phosphor ball trail (breakout). */
   const ballTrail: { x: number; y: number }[] = [];
   let bricks: Brick[] = [];
   let rotors: Rotor[] = [];
