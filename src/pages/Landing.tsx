@@ -22,6 +22,7 @@ const EXHIBITS: CartridgeSpec[] = [
     twist: "none",
     finish: "lithograph",
     bells: true,
+    hue: 0,
   }),
   normalizeSpec({
     mould: "snake",
@@ -36,6 +37,7 @@ const EXHIBITS: CartridgeSpec[] = [
     twist: "none",
     finish: "matte",
     bells: true,
+    hue: 105,
   }),
   normalizeSpec({
     mould: "invaders",
@@ -50,6 +52,7 @@ const EXHIBITS: CartridgeSpec[] = [
     twist: "windfall",
     finish: "electric",
     bells: true,
+    hue: 210,
   }),
 ];
 
@@ -108,8 +111,8 @@ export default function Landing() {
             </div>
             <dl className="mt-10 grid max-w-md grid-cols-3 gap-4 text-center">
               {[
-                ["3", "cast-iron moulds"],
-                ["12", "dials per press"],
+                ["6", "colour recipes"],
+                ["24", "toning baths"],
                 ["∞", "impressions"],
               ].map(([n, label]) => (
                 <div key={label} className="rounded-md border bg-card/60 px-3 py-3 paper-lift">

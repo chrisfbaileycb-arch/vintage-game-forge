@@ -25,6 +25,69 @@ interface Palette {
   grid: string;
 }
 
+/**
+ * Full-spectrum toning: rotate every tone of a base palette around the
+ * colour wheel. HSL keeps saturation & lightness fixed, so the vintage
+ * contrast mix survives at any hue — 6 recipes × 24 baths = 144 colourings.
+ */
+export function tonePalette(base: Palette, hueDegrees: number): Palette {
+  if (!hueDegrees) return base;
+  const rotate = (hex: string): string =>
+    hslRotateHex(hex, ((hueDegrees % 360) + 360) % 360);
+  return {
+    background: rotate(base.background),
+    field: rotate(base.field),
+    ink: rotate(base.ink),
+    accent: rotate(base.accent),
+    grid: rotate(base.grid),
+  };
+}
+
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const m = hex.replace("#", "");
+  const r = parseInt(m.slice(0, 2), 16) / 255;
+  const g = parseInt(m.slice(2, 4), 16, ) / 255;
+  const b = parseInt(m.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h: number;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h *= 60;
+  return { h: (h + 360) % 360, s: Math.min(1, s), l };
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (((h % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hp < 1) [r, g, b] = [c, x, 0];
+  else if (hp < 2) [r, g, b] = [x, c, 0];
+  else if (hp < 3) [r, g, b] = [0, c, x];
+  else if (hp < 4) [r, g, b] = [0, x, c];
+  else if (hp < 5) [r, g, b] = [c, 0, x];
+  else [r, g, b] = [x, 0, c];
+  const m = l - c / 2;
+  const f = (v: number) =>
+    Math.round(Math.min(1, Math.max(0, v + m)) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${f(r)}${f(g)}${f(b)}`;
+}
+
+function hslRotateHex(hex: string, degrees: number): string {
+  const { h, s, l } = hexToHsl(hex);
+  return hslToHex((h + degrees) % 360, s, l);
+}
+
 export const PALETTES: Record<PaletteId, Palette> = {
   sepia: {
     background: "#3a2d1c",
@@ -193,7 +256,7 @@ export function createCartridge(
     random?: RandomSource;
   } = {},
 ): CartridgeHandle {
-  const pal = PALETTES[spec.palette];
+  const pal = tonePalette(PALETTES[spec.palette], spec.hue ?? 0);
   const finish = FINISH_FLAGS[spec.finish];
   const paceMul = 0.55 + 0.22 * spec.pace;
   const maxSeals = spec.twist === "brittle" ? 1 : 3;

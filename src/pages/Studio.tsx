@@ -20,6 +20,7 @@ import {
   MOULD_BASE_PACE,
   MOULD_OPTIONS,
   PALETTE_OPTIONS,
+  SPECTRUM_STEPS,
   TOKEN_META,
   TWIST_OPTIONS,
   type CartridgeSpec,
@@ -49,6 +50,7 @@ interface Live {
   finish: FinishId;
   tokens: number;
   bells: boolean;
+  hue: number;
 }
 
 function defaultLive(mould: MouldKind): Live {
@@ -66,6 +68,7 @@ function defaultLive(mould: MouldKind): Live {
     finish: "matte",
     tokens: 2,
     bells: false,
+    hue: 0,
   };
 }
 
@@ -84,6 +87,7 @@ function liveToSpec(l: Live): CartridgeSpec {
     finish: l.finish,
     tokens: l.tokens,
     bells: l.bells,
+    hue: l.hue,
   };
 }
 
@@ -344,6 +348,15 @@ export default function Studio() {
                   { value: "on", label: "Chiptune chimes" },
                 ]}
               />
+              <DialSelect
+                label="Spectrum toning"
+                value={String(live.hue)}
+                onChange={(v) => update("hue", Number(v))}
+                options={SPECTRUM_STEPS.map((s) => ({
+                  value: String(s.hue),
+                  label: `${s.hue}° — ${s.label}`,
+                }))}
+              />
             </div>
 
             <div className="font-pressing space-y-1 text-xs text-muted-foreground">
@@ -356,6 +369,9 @@ export default function Studio() {
               </p>
               <p>
                 FRAME: {FRAME_OPTIONS.find((f) => f.id === live.frame)?.hint}
+              </p>
+              <p>
+                SPECTRUM: {live.hue === 0 ? "as mixed by the house" : `${live.hue}° around the wheel`}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">

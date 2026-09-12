@@ -185,6 +185,10 @@ export default function Play() {
                   <span className="text-right text-foreground">{spec.finish}</span>
                   <span>TOKENS</span>
                   <span className="text-right text-foreground">{spec.tokens}</span>
+                  <span>SPECTRUM</span>
+                  <span className="text-right text-foreground">
+                    {spec.hue ? `${spec.hue}° toned` : "as mixed"}
+                  </span>
                   <span>BELLS</span>
                   <span className="text-right text-foreground">{spec.bells ? "on" : "off"}</span>
                 </div>

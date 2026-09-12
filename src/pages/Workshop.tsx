@@ -238,7 +238,7 @@ export default function Workshop() {
                       <div className="font-pressing text-[11px] leading-5 tracking-wide text-muted-foreground">
                         <p>
                           SPEED {spec.pace}/5 · FIXTURES {spec.hazards} · TOKENS{" "}
-                          {spec.tokens} · {spec.finish.toUpperCase()}
+                          {spec.tokens} · {spec.hue ? `TONED ${spec.hue}°` : "AS MIXED"}
                         </p>
                         <p>
                           {g.isPublic ? "ON DISPLAY" : "PRIVATE KEEPING"} ·{" "}

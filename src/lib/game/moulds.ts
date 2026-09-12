@@ -32,6 +32,8 @@ export interface CartridgeSpec {
   tokens: number;
   /** Foundry bell: a small chime accent on notable events. */
   bells: boolean;
+  /** Spectrum toning: hue rotation applied to the whole palette, 0..345 (degrees). */
+  hue: number;
   /** Public display name pressed onto the label. */
   title: string;
 }
@@ -108,6 +110,34 @@ export const FINISH_OPTIONS: { id: FinishId; label: string; hint: string }[] = [
   },
 ];
 
+/** The full spectrum: 24 toning baths in 15° steps around the colour wheel. */
+export const SPECTRUM_STEPS: { hue: number; label: string }[] = [
+  { hue: 0, label: "As mixed" },
+  { hue: 15, label: "Scarlet bath" },
+  { hue: 30, label: "Vermilion bath" },
+  { hue: 45, label: "Amber bath" },
+  { hue: 60, label: "Gold bath" },
+  { hue: 75, label: "Chartreuse bath" },
+  { hue: 90, label: "Lime bath" },
+  { hue: 105, label: "Olive bath" },
+  { hue: 120, label: "Emerald bath" },
+  { hue: 135, label: "Spring bath" },
+  { hue: 150, label: "Jade bath" },
+  { hue: 165, label: "Teal bath" },
+  { hue: 180, label: "Cyan bath" },
+  { hue: 195, label: "Azure bath" },
+  { hue: 210, label: "Cobalt bath" },
+  { hue: 225, label: "Sapphire bath" },
+  { hue: 240, label: "Ultramarine bath" },
+  { hue: 255, label: "Indigo bath" },
+  { hue: 270, label: "Violet bath" },
+  { hue: 285, label: "Aubergine bath" },
+  { hue: 300, label: "Magenta bath" },
+  { hue: 315, label: "Orchid bath" },
+  { hue: 330, label: "Rose bath" },
+  { hue: 345, label: "Crimson bath" },
+];
+
 /** Dial ranges so the Studio's dropdowns and public validation stay in sync. */
 export const DIAL_RANGES = {
   pace: { min: 1, max: 5 },
@@ -119,6 +149,7 @@ export const DIAL_RANGES = {
   },
   hazards: { min: 0, max: 9 },
   tokens: { min: 0, max: 9 },
+  hue: { min: 0, max: 345, step: 15 },
 } as const;
 
 export const MOULD_OPTIONS: {
@@ -211,6 +242,7 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
   const handling = clamp(raw.handling, 0, handlingMax, Math.round(handlingMax / 2));
   const hazards = clamp(raw.hazards, 0, 9, 2);
   const tokens = clamp(raw.tokens, 0, 9, 0);
+  const hue = clamp(raw.hue, 0, 345, 0);
   const bells =
     typeof raw.bells === "boolean" ? raw.bells : raw.bells === "true";
 
@@ -223,6 +255,7 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
     hazards,
     tokens,
     bells,
+    hue,
     palette: toPalette(raw.palette),
     frame: toFrame(raw.frame),
     twist: toTwist(raw.twist),
@@ -280,6 +313,7 @@ export function describeSpec(spec: CartridgeSpec): string[] {
   parts.push(DIAL_TERMS.handling.toLowerCase());
   if (spec.hazards > 0) parts.push(`${spec.hazards} fixtures`);
   if (spec.tokens > 0) parts.push(`${spec.tokens} tokens`);
+  if (spec.hue > 0) parts.push(`toned ${spec.hue}°`);
   parts.push(`speed ${spec.pace}/5`);
   return parts;
 }
