@@ -295,3 +295,66 @@ describe("event bus", () => {
     expect(seen).toContain("brick");
   });
 });
+
+
+describe("mould №6 — burrower (excavation)", () => {
+  it("starts with an excavation objective and untouched strata", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "burrower", gridDensity: 2, pace: 2, tokens: 0 }),
+      { random: makeRng() },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    expect(cart.hud.objective).toContain("Excavate");
+    expect(cart.hud.progress).toBe(0);
+    expect(cart.hud.seals).toBeGreaterThanOrEqual(0);
+  });
+
+  it("digs tunnels and never crashes against pursuers over a long run", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "burrower", gridDensity: 7, hazards: 5, pace: 5 }),
+      { random: makeRng(11) },
+    );
+    const seen: string[] = [];
+    cart.onEvent((e) => seen.push(e));
+    runTicks(cart, 1500, (i, input) => {
+      input.fire = i % 240 < 120; // hose pulses
+      input.down = i % 60 < 20;
+      input.left = i % 60 >= 20 && i % 60 < 40;
+      input.right = i % 60 >= 40;
+    });
+    expect(Number.isFinite(cart.hud.score)).toBe(true);
+    expect(cart.hud.score).toBeGreaterThanOrEqual(0);
+    expect(["playing", "lost", "won", "title"]).toContain(cart.hud.state);
+  });
+});
+
+describe("mould №7 — scaffolding (tiers & barrels)", () => {
+  it("starts on the first tier with a climb objective", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "scaffolding", pace: 2, tokens: 0 }),
+      { random: makeRng() },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    expect(cart.hud.objective.toLowerCase()).toContain("apex");
+    expect(cart.hud.progress).toBeGreaterThan(0); // tier 1 of 6
+  });
+
+  it("runs, climbs and survives rolling barrels without crashing", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "scaffolding", pace: 5, hazards: 7, handling: 6 }),
+      { random: makeRng(5) },
+    );
+    runTicks(cart, 1800, (i, input) => {
+      input.right = i % 40 < 20;
+      input.up = i % 40 >= 20;
+      input.fire = i % 120 < 10; // occasional mallet swings
+    });
+    expect(["playing", "lost", "won", "title"]).toContain(cart.hud.state);
+    expect(cart.hud.seals).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(cart.hud.score)).toBe(true);
+  });
+});

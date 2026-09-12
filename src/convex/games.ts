@@ -2,33 +2,15 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { MutationCtx, mutation, query } from "./_generated/server";
+import { normalizeSpec } from "../lib/game/moulds";
 
 /**
- * Sanitize an incoming spec into the exact fields the foundry stores.
- * Everything else is dropped — the engine re-validates on read anyway.
+ * Sanitize an incoming spec through the engine's own normalizer — the single
+ * source of truth for dial ranges, enum whitelists, and mould validation.
+ * Everything unknown is dropped; the result is always a playable spec.
  */
 function sanitizeSpec(raw: unknown): Record<string, unknown> {
-  const src = (raw ?? {}) as Record<string, unknown>;
-  const num = (v: unknown, dflt: number) =>
-    typeof v === "number" && Number.isFinite(v) ? v : dflt;
-  const str = (v: unknown, dflt: string) =>
-    typeof v === "string" && v.trim() ? v.trim().slice(0, 40) : dflt;
-  return {
-    mould: str(src.mould, "breakout"),
-    pace: num(src.pace, 3),
-    gridDensity: num(src.gridDensity, 5),
-    brickRows: num(src.brickRows, 4),
-    handling: num(src.handling, 2),
-    hazards: num(src.hazards, 2),
-    palette: str(src.palette, "sepia"),
-    frame: str(src.frame, "none"),
-    twist: str(src.twist, "none"),
-    finish: str(src.finish, "matte"),
-    tokens: num(src.tokens, 0),
-    bells: typeof src.bells === "boolean" ? src.bells : false,
-    hue: num(src.hue, 0),
-    title: str(src.title, "Untitled Pressing"),
-  };
+  return { ...normalizeSpec((raw ?? {}) as Record<string, unknown>) };
 }
 
 /** Bump the per-user aggregate counters (creating the row on first press). */
