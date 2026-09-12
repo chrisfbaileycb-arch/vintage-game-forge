@@ -1,11 +1,11 @@
 {
-  "name": "freebuff.com application",
-  "short_name": "freebuff.com",
-  "description": "freebuff.com application",
+  "name": "The Cartridge Foundry",
+  "short_name": "Cartridge Foundry",
+  "description": "Manufacture your own vintage arcade cartridge: choose a mould, set the dials, press Play.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "background_color": "#e2d3b4",
+  "theme_color": "#4a2c1a",
   "icons": [
     {
       "src": "/logo.png",
