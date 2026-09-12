@@ -23,8 +23,8 @@ import { Navigate, useLocation, useNavigate } from "react-router";
  */
 export function RequireAuth({
   children,
-  title = "Sign in to continue",
-  description = "This page is only available to signed-in users.",
+  title = "The press is members-only",
+  description = "Sign in to open your Studio and press cartridges.",
   redirectImmediately = false,
 }: {
   children: ReactNode;
@@ -68,7 +68,8 @@ export function RequireAuth({
             <CardDescription>{description}</CardDescription>
           </CardHeader>
           <CardContent className="text-center text-sm text-muted-foreground">
-            You'll come straight back to this page once you're signed in.
+            You'll come straight back to the pressing room once you're signed
+            in.
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
             <Button className="w-full" onClick={() => navigate(signInHref)}>

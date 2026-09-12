@@ -55,8 +55,8 @@ export const TWIST_OPTIONS: { id: TwistId; label: string; hint: string }[] = [
   { id: "brittle", label: "Brittle Moulding", hint: "One hit ruins the piece" },
   {
     id: "decade",
-    label: "Turn of the Century",
-    hint: "Objectives retire at 1900 pts",
+    label: "House Target",
+    hint: "The run is won at 500 pts",
   },
 ];
 
@@ -186,4 +186,31 @@ export function decodeSpec(code: string): CartridgeSpec | null {
   } catch {
     return null;
   }
+}
+
+/** Archival-style display number derived from a document id. */
+export function catalogueNumber(id: string): string {
+  let sum = 0;
+  for (const ch of id) sum = (sum * 31 + ch.charCodeAt(0)) % 97;
+  return `№ ${String(sum).padStart(3, "0")}`;
+}
+
+const DIAL_TERMS: Record<string, string> = {
+  pace: "Pressing speed",
+  gridDensity: "Grid density",
+  brickRows: "Brick rows",
+  handling: "Handling",
+  hazards: "Extra fixtures",
+};
+
+/** Short human summary of the dials on a spec, for label plates. */
+export function describeSpec(spec: CartridgeSpec): string[] {
+  const parts: string[] = [];
+  if (spec.mould === "breakout") parts.push(`${spec.brickRows} brick rows`);
+  if (spec.mould === "invaders") parts.push(`grid of ${4 + spec.gridDensity}`);
+  if (spec.mould === "snake") parts.push(`${12 + spec.gridDensity * 2} columns`);
+  parts.push(DIAL_TERMS.handling.toLowerCase());
+  if (spec.hazards > 0) parts.push(`${spec.hazards} fixtures`);
+  parts.push(`speed ${spec.pace}/5`);
+  return parts;
 }

@@ -12,6 +12,9 @@ import "./index.css";
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const Studio = lazy(() => import("./pages/Studio.tsx"));
+const Workshop = lazy(() => import("./pages/Workshop.tsx"));
+const Play = lazy(() => import("./pages/Play.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -121,8 +124,26 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/" element={<Landing />} />
               <Route
                 path="/auth"
-                element={<AuthPage redirectAfterAuth="/dashboard" />}
+                element={<AuthPage redirectAfterAuth="/studio" />}
               />
+              <Route
+                path="/studio"
+                element={
+                  <RequireAuth>
+                    <Studio />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/workshop"
+                element={
+                  <RequireAuth>
+                    <Workshop />
+                  </RequireAuth>
+                }
+              />
+              <Route path="/play/:cartridgeId" element={<Play />} />
+              <Route path="/play/standalone" element={<Play />} />
               <Route
                 path="/dashboard"
                 element={

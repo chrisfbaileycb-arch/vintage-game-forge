@@ -32,12 +32,21 @@ const schema = defineSchema(
       role: v.optional(roleValidator), // role of the user. do not remove
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
-    // add other tables here
-
-    // tableName: defineTable({
-    //   ...
-    //   // table fields
-    // }).index("by_field", ["field"])
+    // Pressed cartridges: validated specs with owner + public share metadata.
+    gameDesigns: defineTable({
+      title: v.string(),
+      spec: v.any(), // CartridgeSpec (validated via normalizeSpec on read)
+      mould: v.string(),
+      palette: v.string(),
+      frame: v.string(),
+      twist: v.string(),
+      userId: v.id("users"),
+      isPublic: v.boolean(),
+      plays: v.number(),
+      createdAt: v.number(),
+    })
+      .index("by_user", ["userId", "createdAt"])
+      .index("by_public", ["isPublic", "plays"]),
   },
   {
     schemaValidation: false,
