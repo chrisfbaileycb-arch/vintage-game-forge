@@ -175,15 +175,18 @@ export default function Play() {
                   <span>FIXTURES</span>
                   <span className="text-right text-foreground">
                     {spec.hazards}
-                  </span>
-                  <span>PALETTE</span>
-                  <span className="text-right text-foreground">
-                    {spec.palette}
-                  </span>
+                  </span>                  <span>PALETTE</span>
+                  <span className="text-right text-foreground">{spec.palette}</span>
                   <span>FRAME</span>
                   <span className="text-right text-foreground">{spec.frame}</span>
                   <span>TWIST</span>
                   <span className="text-right text-foreground">{spec.twist}</span>
+                  <span>FINISH</span>
+                  <span className="text-right text-foreground">{spec.finish}</span>
+                  <span>TOKENS</span>
+                  <span className="text-right text-foreground">{spec.tokens}</span>
+                  <span>BELLS</span>
+                  <span className="text-right text-foreground">{spec.bells ? "on" : "off"}</span>
                 </div>
 
                 <div className="mt-8 flex flex-wrap gap-2">

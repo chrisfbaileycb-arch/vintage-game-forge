@@ -16,7 +16,7 @@ export interface CartridgeSpec {
   gridDensity: number;
   /** 0 .. 9, breakout mould only (rows of bricks). */
   brickRows: number;
-  /** Paddle width / growth dial, 0 .. 9. */
+  /** Paddle width / growth / reload dial, 0 .. 9. */
   handling: number;
   /** Number of extra hazards, 0 .. 9. */
   hazards: number;
@@ -26,28 +26,50 @@ export interface CartridgeSpec {
   frame: FrameId;
   /** One extra rule layered onto the engine. */
   twist: TwistId;
+  /** Plate finish: grain, glow, and shake treatment. */
+  finish: FinishId;
+  /** How many house tokens (bonus drops) the engine scatters, 0 .. 9. */
+  tokens: number;
+  /** Foundry bell: a small chime accent on notable events. */
+  bells: boolean;
   /** Public display name pressed onto the label. */
   title: string;
 }
 
-export type PaletteId = "sepia" | "cabinet" | "emerald";
+export type PaletteId =
+  | "sepia"
+  | "cabinet"
+  | "emerald"
+  | "blueprint"
+  | "nocturne"
+  | "halftone";
 
-export const PALETTE_OPTIONS: { id: PaletteId; label: string; hint: string }[] =
-  [
-    { id: "sepia", label: "Sepia Plate", hint: "Tarnished albumen print" },
-    { id: "cabinet", label: "Oxblood Cabinet", hint: "Dark lacquer & brass" },
-    { id: "emerald", label: "Emerald Ledger", hint: "Green library lamp" },
-  ];
+export const PALETTE_OPTIONS: { id: PaletteId; label: string; hint: string }[] = [
+  { id: "sepia", label: "Sepia Plate", hint: "Tarnished albumen print" },
+  { id: "cabinet", label: "Oxblood Cabinet", hint: "Dark lacquer & brass" },
+  { id: "emerald", label: "Emerald Ledger", hint: "Green library lamp" },
+  { id: "blueprint", label: "Cyan Blueprint", hint: "Draughtsman's linen" },
+  { id: "nocturne", label: "Nocturne Slate", hint: "Ink by lamplight" },
+  { id: "halftone", label: "Halftone News", hint: "Saturday evening press" },
+];
 
-export type FrameId = "none" | "plaque" | "engraved";
+export type FrameId = "none" | "plaque" | "engraved" | "gilt" | "ticket";
 
 export const FRAME_OPTIONS: { id: FrameId; label: string; hint: string }[] = [
   { id: "none", label: "Unframed", hint: "The bare plate" },
   { id: "plaque", label: "Brass Plaque", hint: "Mounted on walnut" },
   { id: "engraved", label: "Engraved Bezel", hint: "Etched glass surround" },
+  { id: "gilt", label: "Gilt Salon Frame", hint: "Ornate museum gilding" },
+  { id: "ticket", label: "Punched Ticket", hint: "Perforated admission stub" },
 ];
 
-export type TwistId = "none" | "compact" | "brittle" | "decade";
+export type TwistId =
+  | "none"
+  | "compact"
+  | "brittle"
+  | "decade"
+  | "blackout"
+  | "windfall";
 
 export const TWIST_OPTIONS: { id: TwistId; label: string; hint: string }[] = [
   { id: "none", label: "None", hint: "A faithful pressing" },
@@ -57,6 +79,32 @@ export const TWIST_OPTIONS: { id: TwistId; label: string; hint: string }[] = [
     id: "decade",
     label: "House Target",
     hint: "The run is won at 500 pts",
+  },
+  {
+    id: "blackout",
+    label: "Blackout Drill",
+    hint: "Lamps fail in waves; play by memory",
+  },
+  {
+    id: "windfall",
+    label: "Windfall Ledger",
+    hint: "Every fifth point paid double",
+  },
+];
+
+export type FinishId = "matte" | "lithograph" | "electric";
+
+export const FINISH_OPTIONS: { id: FinishId; label: string; hint: string }[] = [
+  { id: "matte", label: "Matte Stock", hint: "Flat, honest paper" },
+  {
+    id: "lithograph",
+    label: "Lithograph Grain",
+    hint: "Stone-print grain & ember sparks",
+  },
+  {
+    id: "electric",
+    label: "Electric Varnish",
+    hint: "Glow accents & force feedback",
   },
 ];
 
@@ -70,6 +118,7 @@ export const DIAL_RANGES = {
     byMould: { breakout: 3, snake: 9, invaders: 5 } as Record<MouldKind, number>,
   },
   hazards: { min: 0, max: 9 },
+  tokens: { min: 0, max: 9 },
 } as const;
 
 export const MOULD_OPTIONS: {
@@ -84,21 +133,21 @@ export const MOULD_OPTIONS: {
     name: "Mould №1 — Breaker",
     tagline: "Ball, bat & wall of bricks",
     blurb: "A bat deflects a ball into a wall of bricks. Clear the wall to win.",
-    dials: ["Brick rows", "Paddle width", "Twist"],
+    dials: ["Brick rows", "Paddle width", "Tokens", "Twist"],
   },
   {
     id: "snake",
     name: "Mould №2 — Serpent",
     tagline: "The ever-growing coil",
     blurb: "A serpent grows with each mark it eats; avoid walls and itself.",
-    dials: ["Marks on the board", "Growth dial", "Twist"],
+    dials: ["Marks on the board", "Growth dial", "Tokens", "Twist"],
   },
   {
     id: "invaders",
     name: "Mould №3 — Sentinels",
     tagline: "Ranks descend, you hold the line",
     blurb: "Marching ranks descend; hold the line until the ranks are cleared.",
-    dials: ["Grid density", "Formation speed", "Twist"],
+    dials: ["Grid density", "Formation speed", "Tokens", "Twist"],
   },
 ];
 
@@ -110,19 +159,36 @@ export const MOULD_BASE_PACE: Record<MouldKind, number> = {
 
 /** Parse an unknown value into a valid palette, else default. */
 export function toPalette(value: unknown): PaletteId {
-  return value === "cabinet" || value === "emerald" ? value : "sepia";
+  return value === "cabinet" ||
+    value === "emerald" ||
+    value === "blueprint" ||
+    value === "nocturne" ||
+    value === "halftone"
+    ? value
+    : "sepia";
 }
 
 export function toFrame(value: unknown): FrameId {
-  return value === "plaque" || value === "engraved" ? value : "none";
+  return value === "plaque" ||
+    value === "engraved" ||
+    value === "gilt" ||
+    value === "ticket"
+    ? value
+    : "none";
 }
 
 export function toTwist(value: unknown): TwistId {
   return value === "compact" ||
     value === "brittle" ||
-    value === "decade"
+    value === "decade" ||
+    value === "blackout" ||
+    value === "windfall"
     ? value
     : "none";
+}
+
+export function toFinish(value: unknown): FinishId {
+  return value === "lithograph" || value === "electric" ? value : "matte";
 }
 
 /** Clamp & validate a spec coming from the database or a share link. */
@@ -142,13 +208,11 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
   const gridDensity = clamp(raw.gridDensity, 0, 9, 5);
   const brickRows = clamp(raw.brickRows, 0, 9, 4);
   const handlingMax = DIAL_RANGES.handling.byMould[mould];
-  const handling = clamp(
-    raw.handling,
-    0,
-    handlingMax,
-    Math.round(handlingMax / 2),
-  );
+  const handling = clamp(raw.handling, 0, handlingMax, Math.round(handlingMax / 2));
   const hazards = clamp(raw.hazards, 0, 9, 2);
+  const tokens = clamp(raw.tokens, 0, 9, 0);
+  const bells =
+    typeof raw.bells === "boolean" ? raw.bells : raw.bells === "true";
 
   return {
     mould,
@@ -157,9 +221,12 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
     brickRows,
     handling,
     hazards,
+    tokens,
+    bells,
     palette: toPalette(raw.palette),
     frame: toFrame(raw.frame),
     twist: toTwist(raw.twist),
+    finish: toFinish(raw.finish),
     title:
       typeof raw.title === "string" && raw.title.trim()
         ? raw.title.trim().slice(0, 40)
@@ -201,6 +268,7 @@ const DIAL_TERMS: Record<string, string> = {
   brickRows: "Brick rows",
   handling: "Handling",
   hazards: "Extra fixtures",
+  tokens: "House tokens",
 };
 
 /** Short human summary of the dials on a spec, for label plates. */
@@ -211,6 +279,26 @@ export function describeSpec(spec: CartridgeSpec): string[] {
   if (spec.mould === "snake") parts.push(`${12 + spec.gridDensity * 2} columns`);
   parts.push(DIAL_TERMS.handling.toLowerCase());
   if (spec.hazards > 0) parts.push(`${spec.hazards} fixtures`);
+  if (spec.tokens > 0) parts.push(`${spec.tokens} tokens`);
   parts.push(`speed ${spec.pace}/5`);
   return parts;
 }
+
+/** The three house tokens the foundry scatters, by engine effect. */
+export type TokenId = "widen" | "slowpress" | "windfall";
+
+export const TOKEN_META: { id: TokenId; label: string; hint: string }[] = [
+  { id: "widen", label: "Widened Works", hint: "widens your instrument" },
+  { id: "slowpress", label: "Slow Press", hint: "eases the pace briefly" },
+  { id: "windfall", label: "Windfall Coupon", hint: "a purse of bonus points" },
+];
+
+/** Upper bounds for runtime effects the tests pin down. */
+export const EFFECT_LIMITS = {
+  /** Widened Works may not more than double the instrument. */
+  widenMulMax: 2,
+  /** Slow Press may not drop below 60% of pace. */
+  slowMulMin: 0.6,
+  /** Windfall Coupon pays 100 points. */
+  windfallPoints: 100,
+} as const;

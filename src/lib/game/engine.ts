@@ -4,9 +4,14 @@
  * Pure TypeScript + Canvas 2D. One engine instance runs one cartridge spec.
  * The React component owns the requestAnimationFrame loop, keyboard/touch
  * input, and HUD wiring; the engine stays framework-free.
+ *
+ * Advanced layer: particle embers, screen shake, combo streaks, house-token
+ * power-ups, print finishes, blackout/windfall twists, and a small event bus
+ * for chiptune bells and HUD flourishes.
  */
 
-import type { CartridgeSpec, PaletteId } from "./moulds";
+import type { CartridgeSpec, FinishId, PaletteId, TokenId } from "./moulds";
+import { EFFECT_LIMITS } from "./moulds";
 
 // ---------------------------------------------------------------------------
 // Palettes
@@ -42,6 +47,37 @@ export const PALETTES: Record<PaletteId, Palette> = {
     accent: "#d8b06a",
     grid: "#22402c",
   },
+  blueprint: {
+    background: "#0f1b26",
+    field: "#12222e",
+    ink: "#bcd7e8",
+    accent: "#d8b06a",
+    grid: "#1d3a4c",
+  },
+  nocturne: {
+    background: "#141118",
+    field: "#1c1823",
+    ink: "#d9cfdd",
+    accent: "#b06a8a",
+    grid: "#2e2733",
+  },
+  halftone: {
+    background: "#efe6d0",
+    field: "#f4ecdb",
+    ink: "#2b2620",
+    accent: "#a03428",
+    grid: "#e0d5bb",
+  },
+};
+
+/** Per-finish behaviour flags consumed by the renderer and FX layer. */
+export const FINISH_FLAGS: Record<
+  FinishId,
+  { grain: boolean; glow: boolean; shake: number }
+> = {
+  matte: { grain: false, glow: false, shake: 1 },
+  lithograph: { grain: true, glow: false, shake: 1.25 },
+  electric: { grain: false, glow: true, shake: 1.6 },
 };
 
 // ---------------------------------------------------------------------------
@@ -71,7 +107,21 @@ export interface HudState {
   progressLabel: string;
   progress: number;
   message: string;
+  combo: number;
+  comboTimer: number;
 }
+
+export type FoundryEvent =
+  | "brick"
+  | "mark"
+  | "sentinel"
+  | "token"
+  | "sealLost"
+  | "won"
+  | "lost"
+  | "combo";
+
+export type FoundryListener = (event: FoundryEvent) => void;
 
 export interface CartridgeHandle {
   reset(): void;
@@ -80,7 +130,12 @@ export interface CartridgeHandle {
   update(dt: number, input: EngineInput): void;
   render(ctx: CanvasRenderingContext2D): void;
   readonly hud: HudState;
+  /** Subscribe to engine events (chiptune bells, HUD flourishes). */
+  onEvent(listener: FoundryListener): () => void;
 }
+
+/** Test seam: deterministic replacement for Math.random. */
+export type RandomSource = () => number;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -91,10 +146,6 @@ const H = 480;
 
 function clamp(v: number, min: number, max: number) {
   return v < min ? min : v > max ? max : v;
-}
-
-function randRange(min: number, max: number) {
-  return min + Math.random() * (max - min);
 }
 
 function segDist(
@@ -122,8 +173,12 @@ interface Rect {
   h: number;
 }
 
-function rectsOverlap(a: Rect, b: Rect) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+function withAlpha(hex: string, alpha: number): string {
+  const m = hex.replace("#", "");
+  const r = parseInt(m.slice(0, 2), 16);
+  const g = parseInt(m.slice(2, 4), 16);
+  const b = parseInt(m.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,11 +187,17 @@ function rectsOverlap(a: Rect, b: Rect) {
 
 export function createCartridge(
   spec: CartridgeSpec,
-  opts: { initialBest?: number; onHudChange?: (hud: HudState) => void } = {},
+  opts: {
+    initialBest?: number;
+    onHudChange?: (hud: HudState) => void;
+    random?: RandomSource;
+  } = {},
 ): CartridgeHandle {
   const pal = PALETTES[spec.palette];
+  const finish = FINISH_FLAGS[spec.finish];
   const paceMul = 0.55 + 0.22 * spec.pace;
   const maxSeals = spec.twist === "brittle" ? 1 : 3;
+  const rng: RandomSource = opts.random ?? Math.random;
 
   const field: Rect =
     spec.twist === "compact"
@@ -152,6 +213,8 @@ export function createCartridge(
     progressLabel: "",
     progress: 0,
     message: "",
+    combo: 0,
+    comboTimer: 0,
   };
 
   function setHud(patch: Partial<HudState>) {
@@ -166,6 +229,192 @@ export function createCartridge(
     hud = { ...hud, ...patch };
     opts.onHudChange?.(hud);
   }
+
+  // ----- Event bus -----------------------------------------------------------
+
+  const listeners = new Set<FoundryListener>();
+  function emit(event: FoundryEvent) {
+    for (const fn of listeners) fn(event);
+  }
+
+  // ----- Particles & shake ----------------------------------------------------
+
+  interface Particle {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    size: number;
+    color: string;
+    gravity: number;
+  }
+  const particles: Particle[] = [];
+  const MAX_PARTICLES = 220;
+
+  function burst(
+    x: number,
+    y: number,
+    count: number,
+    colors: string[],
+    speed: number,
+    gravity = 140,
+  ) {
+    for (let i = 0; i < count; i++) {
+      if (particles.length >= MAX_PARTICLES) particles.shift();
+      const angle = rng() * Math.PI * 2;
+      const vel = speed * (0.4 + rng() * 0.8);
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * vel,
+        vy: Math.sin(angle) * vel - speed * 0.35,
+        life: 0,
+        maxLife: 0.35 + rng() * 0.45,
+        size: 1.5 + rng() * 2.5,
+        color: colors[Math.floor(rng() * colors.length)],
+        gravity,
+      });
+    }
+  }
+
+  function stepParticles(dt: number) {
+    let w = 0;
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      p.life += dt;
+      if (p.life >= p.maxLife) continue;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += p.gravity * dt;
+      particles[w++] = p;
+    }
+    particles.length = w;
+  }
+
+  let shakeAmount = 0;
+  function shake(amount: number) {
+    shakeAmount = Math.min(7, shakeAmount + amount * finish.shake);
+  }
+
+  // ----- Combo streaks --------------------------------------------------------
+
+  let combo = 0;
+  let comboTimer = 0;
+  const COMBO_WINDOW = 2.2;
+
+  /** Chain a scoring event; larger streaks pay escalating bonuses. */
+  function scoreCombo(points: number): number {
+    combo += 1;
+    comboTimer = COMBO_WINDOW;
+    const bonus =
+      combo >= 5 ? Math.ceil(points * 0.5) : combo >= 3 ? Math.ceil(points * 0.25) : 0;
+    return points + bonus;
+  }
+
+  function breakCombo() {
+    combo = 0;
+    comboTimer = 0;
+  }
+
+  // ----- House tokens ---------------------------------------------------------
+
+  interface TokenDrop {
+    id: TokenId;
+    x: number;
+    y: number;
+    vy: number;
+    ttl: number;
+  }
+  let tokens: TokenDrop[] = [];
+  let tokenBudget = 0;
+
+  function refillTokenBudget() {
+    tokenBudget = spec.tokens > 0 ? spec.tokens : 1;
+  }
+
+  function spawnTokenAt(x: number, y: number) {
+    if (tokenBudget <= 0) return;
+    tokenBudget -= 1;
+    const ids: TokenId[] = ["widen", "slowpress", "windfall"];
+    const id = ids[Math.floor(rng() * ids.length)];
+    tokens.push({ id, x, y, vy: 55 + spec.pace * 8, ttl: 9 });
+  }
+
+  // Active power effects
+  let widenTimer = 0;
+  let slowTimer = 0;
+  let widenFactor = 1;
+  let slowFactor = 1;
+
+  function applyToken(id: TokenId) {
+    emit("token");
+    shake(1.5);
+    if (id === "widen") {
+      widenTimer = 8;
+      widenFactor = Math.min(EFFECT_LIMITS.widenMulMax, widenFactor + 0.5);
+    } else if (id === "slowpress") {
+      slowTimer = 6;
+      slowFactor = Math.max(EFFECT_LIMITS.slowMulMin, slowFactor - 0.25);
+    } else {
+      score += EFFECT_LIMITS.windfallPoints;
+    }
+  }
+
+  function tickEffects(dt: number) {
+    if (widenTimer > 0) {
+      widenTimer -= dt;
+      if (widenTimer <= 0) {
+        widenTimer = 0;
+        widenFactor = 1;
+      }
+    }
+    if (slowTimer > 0) {
+      slowTimer -= dt;
+      if (slowTimer <= 0) {
+        slowTimer = 0;
+        slowFactor = 1;
+      }
+    }
+  }
+
+  // ----- Blackout & windfall twists -------------------------------------------
+
+  let blackoutOn = false;
+  let blackoutTimer = 0;
+  let blackoutPhase = 0;
+  const BLACKOUT_CYCLE = 7;
+
+  function tickBlackout(dt: number) {
+    if (spec.twist !== "blackout") return;
+    blackoutTimer += dt;
+    if (blackoutTimer >= BLACKOUT_CYCLE) {
+      blackoutTimer = 0;
+      blackoutPhase += 1;
+      blackoutOn = !blackoutOn;
+    }
+  }
+
+  let windfallCount = 0;
+  /** Every fifth point paid double, per the Windfall Ledger. */
+  function windfallScore(raw: number): number {
+    if (spec.twist !== "windfall") return raw;
+    let payout = raw;
+    let left = raw;
+    while (left > 0) {
+      windfallCount += 1;
+      left -= 1;
+      if (windfallCount % 5 === 0) payout += 1;
+    }
+    return payout;
+  }
+
+  let state: GameState = "title";
+  let seals = maxSeals;
+  let score = 0;
+
+  // ----- Mould: Breaker -------------------------------------------------------
 
   interface Rotor {
     cx: number;
@@ -182,15 +431,14 @@ export function createCartridge(
     h: number;
     alive: boolean;
     tone: number;
+    hits: number;
   }
 
-  // ----- Breakout state -----------------------------------------------------
-  const bat = { x: W / 2, w: 46 + (spec.handling / 3) * 36 };
+  const bat = { x: W / 2, baseW: 46 + (spec.handling / 3) * 36, w: 0 };
+  bat.w = bat.baseW;
   const ball = { x: W / 2, y: 0, vx: 0, vy: 0, r: 6, stuck: true };
   let bricks: Brick[] = [];
   let rotors: Rotor[] = [];
-  let seals = maxSeals;
-  let score = 0;
 
   function buildBreakout() {
     const rows = clamp(spec.brickRows, 3, 9);
@@ -200,6 +448,7 @@ export function createCartridge(
     bricks = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
+        const hits = spec.hazards >= 7 ? 2 : 1;
         bricks.push({
           x: field.x + 12 + c * bw,
           y: field.y + 46 + r * (bh + 6),
@@ -207,6 +456,7 @@ export function createCartridge(
           h: bh,
           alive: true,
           tone: (r + c) % 3,
+          hits,
         });
       }
     }
@@ -217,7 +467,7 @@ export function createCartridge(
         cy: field.y + field.h * 0.52,
         radius: 30 + spec.hazards * 3,
         speed: (0.9 + spec.hazards * 0.12) * paceMul,
-        angle: Math.random() * Math.PI,
+        angle: rng() * Math.PI,
       });
     }
     if (spec.hazards >= 6) {
@@ -226,9 +476,10 @@ export function createCartridge(
         cy: field.y + field.h * 0.68,
         radius: 22 + spec.hazards * 2,
         speed: -(1.1 + spec.hazards * 0.1) * paceMul,
-        angle: Math.random() * Math.PI,
+        angle: rng() * Math.PI,
       });
     }
+    refillTokenBudget();
   }
 
   function resetBall() {
@@ -239,7 +490,8 @@ export function createCartridge(
     ball.vy = 0;
   }
 
-  // ----- Snake state ----------------------------------------------------------
+  // ----- Mould: Serpent ---------------------------------------------------------
+
   const snake = {
     cells: [] as { x: number; y: number }[],
     dir: { x: 1, y: 0 },
@@ -254,6 +506,10 @@ export function createCartridge(
     stepTimer: 0,
     stepInterval: 0.2,
   };
+
+  function randInt(max: number) {
+    return Math.floor(rng() * max);
+  }
 
   function buildSnake() {
     const cols = 12 + clamp(spec.gridDensity, 0, 9) * 2;
@@ -280,10 +536,7 @@ export function createCartridge(
     }
     snake.marks = [];
     for (let i = 0; i < markCount; i++) spawnMark();
-  }
-
-  function randInt(max: number) {
-    return Math.floor(Math.random() * max);
+    refillTokenBudget();
   }
 
   function cellFree(x: number, y: number) {
@@ -304,7 +557,16 @@ export function createCartridge(
     }
   }
 
-  // ----- Invaders state -------------------------------------------------------
+  /** Grid origin of the serpent board, for converting cells to pixels. */
+  function snakeOrigin(): { ox: number; oy: number } {
+    return {
+      ox: field.x + (field.w - snake.cell * snake.cols) / 2,
+      oy: field.y + (field.h - snake.cell * snake.rows) / 2,
+    };
+  }
+
+  // ----- Mould: Sentinels -------------------------------------------------------
+
   const invaders = {
     cols: 8,
     rows: 4,
@@ -355,14 +617,13 @@ export function createCartridge(
             cy: field.y + field.h * 0.34,
             radius: 26 + spec.hazards * 2,
             speed: (1.2 + spec.hazards * 0.1) * paceMul,
-            angle: Math.random() * Math.PI,
+            angle: rng() * Math.PI,
           }
         : null;
+    refillTokenBudget();
   }
 
   // ----- Shared run control ---------------------------------------------------
-
-  let state: GameState = "title";
 
   function objectiveText(): string {
     if (spec.mould === "breakout") return "Clear the wall of bricks";
@@ -398,18 +659,25 @@ export function createCartridge(
       progressLabel: p.label,
       progress: p.value,
       message: extra ?? "",
+      combo,
+      comboTimer,
     });
   }
 
   function winRun() {
     state = "won";
+    emit("won");
     publishScore("PRESSED & APPROVED");
   }
 
   function loseRun(reason: string) {
     seals -= 1;
+    emit("sealLost");
+    shake(3);
+    burst(W / 2, H * 0.8, 24, [pal.ink, pal.accent], 120, 200);
     if (seals <= 0) {
       state = "lost";
+      emit("lost");
       publishScore(reason);
       return;
     }
@@ -434,6 +702,17 @@ export function createCartridge(
   function reset() {
     seals = maxSeals;
     score = 0;
+    breakCombo();
+    particles.length = 0;
+    tokens = [];
+    widenTimer = 0;
+    slowTimer = 0;
+    widenFactor = 1;
+    slowFactor = 1;
+    windfallCount = 0;
+    blackoutOn = false;
+    blackoutTimer = 0;
+    blackoutPhase = 0;
     state = "title";
     buildBreakout();
     buildSnake();
@@ -458,24 +737,35 @@ export function createCartridge(
     publishScore();
   }
 
-  // ----- Update: breakout ------------------------------------------------------
+  // ----- Token drops ---------------------------------------------------------
+
+  function updateTokenDrops(dt: number, onCatch: (t: TokenDrop) => void) {
+    if (tokens.length === 0) return;
+    for (const t of tokens) {
+      t.y += t.vy * dt;
+      t.ttl -= dt;
+      onCatch(t);
+    }
+    tokens = tokens.filter((t) => t.ttl > 0 && t.y < field.y + field.h + 24);
+  }
+
+  // ----- Update: Breaker ------------------------------------------------------
 
   function updateBreakout(dt: number, input: EngineInput) {
     const speed = 300;
     if (input.left) bat.x -= speed * dt;
     if (input.right) bat.x += speed * dt;
-    bat.x = clamp(bat.x, field.x + bat.w / 2, field.x + field.w - bat.w / 2);
+    const effW = bat.baseW * widenFactor;
+    bat.x = clamp(bat.x, field.x + effW / 2, field.x + field.w - effW / 2);
 
-    for (const rotor of rotors) {
-      rotor.angle += rotor.speed * dt;
-    }
+    for (const rotor of rotors) rotor.angle += rotor.speed * dt;
 
     if (ball.stuck) {
       ball.x = bat.x;
       ball.y = field.y + field.h - 34;
       if (input.fire) {
         ball.stuck = false;
-        const dir = input.left ? -1 : input.right ? 1 : Math.random() < 0.5 ? -1 : 1;
+        const dir = input.left ? -1 : input.right ? 1 : rng() < 0.5 ? -1 : 1;
         ball.vx = dir * 140 * paceMul;
         ball.vy = -280 * paceMul;
       }
@@ -503,16 +793,16 @@ export function createCartridge(
       ball.vy > 0 &&
       ball.y + ball.r >= batY &&
       ball.y - ball.r <= batY + 12 &&
-      ball.x >= bat.x - bat.w / 2 - ball.r &&
-      ball.x <= bat.x + bat.w / 2 + ball.r
+      ball.x >= bat.x - effW / 2 - ball.r &&
+      ball.x <= bat.x + effW / 2 + ball.r
     ) {
       ball.y = batY - ball.r;
-      const offset = clamp((ball.x - bat.x) / (bat.w / 2), -1, 1);
+      const offset = clamp((ball.x - bat.x) / (effW / 2), -1, 1);
       const angle = offset * (Math.PI / 3);
       const sp = Math.hypot(ball.vx, ball.vy) * 1.015;
       ball.vx = Math.sin(angle) * sp;
       ball.vy = -Math.abs(Math.cos(angle) * sp);
-      score += 1;
+      score += windfallScore(1);
     }
 
     for (const brick of bricks) {
@@ -523,28 +813,45 @@ export function createCartridge(
         ball.y + ball.r > brick.y &&
         ball.y - ball.r < brick.y + brick.h
       ) {
-        brick.alive = false;
-        const fromSide =
-          ball.x < brick.x || ball.x > brick.x + brick.w ? true : false;
+        const fromSide = ball.x < brick.x || ball.x > brick.x + brick.w;
         if (fromSide) ball.vx = -ball.vx;
         else ball.vy = -ball.vy;
-        score += 10;
+        brick.hits -= 1;
+        if (brick.hits > 0) {
+          score += windfallScore(5);
+          burst(ball.x, ball.y, 5, [pal.ink, pal.accent], 70);
+        } else {
+          brick.alive = false;
+          score += windfallScore(scoreCombo(10));
+          emit("brick");
+          emit("combo");
+          burst(
+            brick.x + brick.w / 2,
+            brick.y + brick.h / 2,
+            14,
+            [pal.ink, pal.accent, "#c9a25a"],
+            110,
+          );
+          shake(1);
+          if (rng() < 0.18) {
+            spawnTokenAt(brick.x + brick.w / 2, brick.y + brick.h / 2);
+          }
+        }
         break;
       }
     }
 
-    for (const rotor of rotors) {
-      for (const arm of [rotor.angle, rotor.angle + Math.PI]) {
-        const ex = rotor.cx + Math.cos(arm) * rotor.radius;
-        const ey = rotor.cy + Math.sin(arm) * rotor.radius;
-        if (segDist(ball.x, ball.y, rotor.cx, rotor.cy, ex, ey) < ball.r + 5) {
-          ball.vx = -ball.vx;
-          ball.vy = -ball.vy;
-          ball.x += ball.vx * dt * 2;
-          ball.y += ball.vy * dt * 2;
-        }
+    updateTokenDrops(dt, (t) => {
+      if (
+        t.x > bat.x - effW / 2 - 6 &&
+        t.x < bat.x + effW / 2 + 6 &&
+        t.y > batY - 14 &&
+        t.y < batY + 22
+      ) {
+        applyToken(t.id);
+        t.ttl = 0;
       }
-    }
+    });
 
     if (ball.y - ball.r > field.y + field.h) {
       loseRun("The piece slipped the press");
@@ -555,22 +862,32 @@ export function createCartridge(
       winRun();
       return;
     }
-    if (bricks.every((b) => !b.alive)) {
-      winRun();
-      return;
-    }
+    if (bricks.every((b) => !b.alive)) winRun();
   }
 
-  // ----- Update: snake ---------------------------------------------------------
+  // ----- Update: Serpent -------------------------------------------------------
 
   function updateSnake(dt: number, input: EngineInput) {
+    const { ox, oy } = snakeOrigin();
+
+    // Tokens fall continuously, even between steps.
+    updateTokenDrops(dt, (t) => {
+      const headCell = snake.cells[0];
+      const col = Math.floor((t.x - ox) / snake.cell);
+      const row = Math.floor((t.y - oy) / snake.cell);
+      if (headCell && col === headCell.x && row === headCell.y) {
+        applyToken(t.id);
+        t.ttl = 0;
+      }
+    });
+
     if (input.up && snake.dir.y === 0) snake.dir = { x: 0, y: -1 };
     else if (input.down && snake.dir.y === 0) snake.dir = { x: 0, y: 1 };
     else if (input.left && snake.dir.x === 0) snake.dir = { x: -1, y: 0 };
     else if (input.right && snake.dir.x === 0) snake.dir = { x: 1, y: 0 };
 
     snake.stepTimer += dt * paceMul;
-    if (snake.stepTimer < snake.stepInterval) return;
+    if (snake.stepTimer < snake.stepInterval / slowFactor) return;
     snake.stepTimer = 0;
 
     const head = snake.cells[0];
@@ -602,9 +919,21 @@ export function createCartridge(
     if (markIdx >= 0) {
       snake.marks.splice(markIdx, 1);
       snake.eaten += 1;
-      score += 100;
+      score += windfallScore(scoreCombo(100));
       snake.grow += 1 + Math.floor(spec.handling / 3);
-      spawnMark();
+      emit("mark");
+      emit("combo");
+      burst(
+        ox + (nx + 0.5) * snake.cell,
+        oy + (ny + 0.5) * snake.cell,
+        10,
+        [pal.ink, pal.accent],
+        80,
+        60,
+      );
+      if (rng() < 0.3) {
+        spawnTokenAt(ox + (nx + 0.5) * snake.cell, oy + (ny + 1.5) * snake.cell);
+      }
     }
 
     if (spec.twist === "decade" && score >= 500) {
@@ -614,13 +943,17 @@ export function createCartridge(
     if (snake.eaten >= snake.target) winRun();
   }
 
-  // ----- Update: invaders --------------------------------------------------------
+  // ----- Update: Sentinels -------------------------------------------------------
 
   function updateInvaders(dt: number, input: EngineInput) {
     const cannonSpeed = 240;
     if (input.left) invaders.cannon.x -= cannonSpeed * dt;
     if (input.right) invaders.cannon.x += cannonSpeed * dt;
-    invaders.cannon.x = clamp(invaders.cannon.x, field.x + 14, field.x + field.w - 14);
+    invaders.cannon.x = clamp(
+      invaders.cannon.x,
+      field.x + 14,
+      field.x + field.w - 14,
+    );
 
     if (invaders.rotor) invaders.rotor.angle += invaders.rotor.speed * dt;
 
@@ -632,15 +965,14 @@ export function createCartridge(
 
     for (const b of invaders.bullets) b.y -= 430 * dt;
     invaders.bullets = invaders.bullets.filter((b) => b.y > field.y + 8);
-    for (const b of invaders.bombs) b.y += 190 * dt * paceMul;
-    invaders.bombs = invaders.bombs.filter(
-      (b) => b.y < field.y + field.h + 10,
-    );
+    for (const b of invaders.bombs) b.y += 190 * dt * paceMul * slowFactor;
+    invaders.bombs = invaders.bombs.filter((b) => b.y < field.y + field.h + 10);
 
     const total = invaders.alive.length || 1;
     const aliveCount = invaders.alive.filter(Boolean).length;
     invaders.stepTimer += dt * paceMul;
-    const interval = invaders.stepInterval * (0.35 + (0.65 * aliveCount) / total);
+    const interval =
+      (invaders.stepInterval * (0.35 + (0.65 * aliveCount) / total)) / slowFactor;
     if (invaders.stepTimer >= interval) {
       invaders.stepTimer = 0;
       const cell = W / (invaders.cols + 2);
@@ -648,18 +980,23 @@ export function createCartridge(
       let minX = Infinity;
       let maxX = -Infinity;
       for (let c = 0; c < invaders.cols; c++) {
-        const colAlive = invaders.alive.some((a, i) => a && i % invaders.cols === c);
+        const colAlive = invaders.alive.some(
+          (a, i) => a && i % invaders.cols === c,
+        );
         if (!colAlive) continue;
         const p = sentinelPos(c, 0);
         minX = Math.min(minX, p.x - p.s / 2);
         maxX = Math.max(maxX, p.x + p.s / 2);
       }
-      if (minX !== Infinity && (minX < field.x + 6 || maxX > field.x + field.w - 6)) {
+      if (
+        minX !== Infinity &&
+        (minX < field.x + 6 || maxX > field.x + field.w - 6)
+      ) {
         invaders.dirX *= -1;
         invaders.origin.x += invaders.dirX * cell * 0.5;
         invaders.origin.y += cell * 0.7;
       }
-      if (Math.random() < 0.25 + spec.pace * 0.07) {
+      if (rng() < 0.25 + spec.pace * 0.07) {
         const aliveIdx: number[] = [];
         invaders.alive.forEach((a, i) => {
           if (a) aliveIdx.push(i);
@@ -674,8 +1011,8 @@ export function createCartridge(
       }
     }
 
-    // bullets vs sentinels / rotor / barriers
-    outer: for (const b of invaders.bullets) {
+    // bullets vs rotor / sentinels / barriers
+    bulletLoop: for (const b of invaders.bullets) {
       if (invaders.rotor) {
         for (const arm of [invaders.rotor.angle, invaders.rotor.angle + Math.PI]) {
           const ex = invaders.rotor.cx + Math.cos(arm) * invaders.rotor.radius;
@@ -699,12 +1036,22 @@ export function createCartridge(
         ) {
           invaders.alive[i] = false;
           b.y = -100;
-          score += 30;
-          break outer;
+          score += windfallScore(scoreCombo(30));
+          emit("sentinel");
+          emit("combo");
+          burst(p.x, p.y, 12, [pal.ink, pal.accent], 100);
+          shake(0.8);
+          if (rng() < 0.15) spawnTokenAt(p.x, p.y);
+          break bulletLoop;
         }
       }
       for (const bar of invaders.barriers) {
-        if (b.x > bar.x && b.x < bar.x + bar.w && b.y > bar.y && b.y < bar.y + bar.h) {
+        if (
+          b.x > bar.x &&
+          b.x < bar.x + bar.w &&
+          b.y > bar.y &&
+          b.y < bar.y + bar.h
+        ) {
           b.y = -100;
           break;
         }
@@ -737,15 +1084,24 @@ export function createCartridge(
       }
     }
 
+    updateTokenDrops(dt, (t) => {
+      const cy = field.y + field.h - 36;
+      if (
+        t.x > invaders.cannon.x - 16 &&
+        t.x < invaders.cannon.x + 16 &&
+        t.y > cy - 16 &&
+        t.y < cy + 14
+      ) {
+        applyToken(t.id);
+        t.ttl = 0;
+      }
+    });
+
     // formation reaching the cannon line
-    const lowestRow = (() => {
-      let lowest = -1;
-      invaders.alive.forEach((a, i) => {
-        if (!a) return;
-        lowest = Math.max(lowest, Math.floor(i / invaders.cols));
-      });
-      return lowest;
-    })();
+    let lowestRow = -1;
+    invaders.alive.forEach((a, i) => {
+      if (a) lowestRow = Math.max(lowestRow, Math.floor(i / invaders.cols));
+    });
     if (lowestRow >= 0) {
       const p = sentinelPos(0, lowestRow);
       if (p.y > field.y + field.h - 60) {
@@ -761,7 +1117,7 @@ export function createCartridge(
     if (invaders.alive.every((a) => !a)) winRun();
   }
 
-  // ----- Update dispatch -----------------------------------------------------------
+  // ----- Update dispatch --------------------------------------------------------
 
   let lastFire = false;
 
@@ -782,17 +1138,28 @@ export function createCartridge(
     if (spec.mould === "breakout") updateBreakout(step, input);
     else if (spec.mould === "snake") updateSnake(step, input);
     else updateInvaders(step, input);
+    tickEffects(step);
+    tickBlackout(step);
+    stepParticles(step);
+    shakeAmount *= 0.86;
+    if (comboTimer > 0) {
+      comboTimer = Math.max(0, comboTimer - step);
+      if (comboTimer === 0) breakCombo();
+    }
     if (state === "playing") publishScore();
   }
 
-  // ----- Rendering -------------------------------------------------------------------
+  // ----- Rendering -----------------------------------------------------------------
 
   function render(ctx: CanvasRenderingContext2D) {
     ctx.save();
     ctx.fillStyle = pal.background;
     ctx.fillRect(0, 0, W, H);
 
-    // playfield
+    if (shakeAmount > 0.05) {
+      ctx.translate((rng() - 0.5) * shakeAmount, (rng() - 0.5) * shakeAmount);
+    }
+
     ctx.fillStyle = pal.field;
     ctx.fillRect(field.x, field.y, field.w, field.h);
 
@@ -812,15 +1179,31 @@ export function createCartridge(
     else if (spec.mould === "snake") renderSnake(ctx);
     else renderInvaders(ctx);
 
-    drawScanlines(ctx, field.x, field.y, field.w, field.h);
+    renderParticles(ctx);
+    if (finish.grain) {
+      drawScanlines(ctx, field.x, field.y, field.w, field.h);
+      drawGrain(ctx);
+    } else {
+      drawScanlines(ctx, field.x, field.y, field.w, field.h);
+    }
+    if (blackoutOn) drawBlackout(ctx);
     ctx.restore();
 
     drawMarquee(ctx);
     drawFrameOverlay(ctx);
+    if (finish.glow) drawGlow(ctx);
     drawVignette(ctx);
 
     if (state !== "playing") drawStateCard(ctx);
     ctx.restore();
+  }
+
+  function renderParticles(ctx: CanvasRenderingContext2D) {
+    for (const p of particles) {
+      const alpha = Math.max(0, 1 - p.life / p.maxLife);
+      ctx.fillStyle = withAlpha(p.color, alpha * 0.9);
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
   }
 
   function renderBreakout(ctx: CanvasRenderingContext2D) {
@@ -831,6 +1214,10 @@ export function createCartridge(
       ctx.fillRect(brick.x, brick.y, brick.w, brick.h);
       ctx.strokeStyle = withAlpha(pal.ink, 0.35);
       ctx.strokeRect(brick.x + 0.5, brick.y + 0.5, brick.w - 1, brick.h - 1);
+      if (brick.hits > 1) {
+        ctx.strokeStyle = withAlpha(pal.accent, 0.9);
+        ctx.strokeRect(brick.x + 2.5, brick.y + 2.5, brick.w - 5, brick.h - 5);
+      }
     }
 
     for (const rotor of rotors) {
@@ -853,10 +1240,15 @@ export function createCartridge(
     }
 
     const batY = field.y + field.h - 26;
+    const effW = bat.baseW * widenFactor;
     ctx.fillStyle = pal.ink;
-    ctx.fillRect(bat.x - bat.w / 2, batY, bat.w, 12);
+    ctx.fillRect(bat.x - effW / 2, batY, effW, 12);
     ctx.fillStyle = pal.accent;
-    ctx.fillRect(bat.x - bat.w / 2, batY, bat.w, 3);
+    ctx.fillRect(bat.x - effW / 2, batY, effW, 3);
+    if (widenTimer > 0) {
+      ctx.strokeStyle = withAlpha("#c9a25a", 0.9);
+      ctx.strokeRect(bat.x - effW / 2 - 2, batY - 2, effW + 4, 16);
+    }
 
     ctx.fillStyle = pal.accent;
     ctx.beginPath();
@@ -867,9 +1259,8 @@ export function createCartridge(
   }
 
   function renderSnake(ctx: CanvasRenderingContext2D) {
+    const { ox, oy } = snakeOrigin();
     const cs = snake.cell;
-    const ox = field.x + (field.w - cs * snake.cols) / 2;
-    const oy = field.y + (field.h - cs * snake.rows) / 2;
 
     ctx.fillStyle = withAlpha(pal.accent, 0.9);
     for (const b of snake.burrows) {
@@ -882,10 +1273,8 @@ export function createCartridge(
 
     ctx.fillStyle = pal.accent;
     for (const m of snake.marks) {
-      const mx = ox + m.x * cs + cs / 2;
-      const my = oy + m.y * cs + cs / 2;
       ctx.beginPath();
-      ctx.arc(mx, my, cs * 0.18, 0, Math.PI * 2);
+      ctx.arc(ox + m.x * cs + cs / 2, oy + m.y * cs + cs / 2, cs * 0.18, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = withAlpha(pal.ink, 0.7);
       ctx.stroke();
@@ -894,13 +1283,12 @@ export function createCartridge(
     snake.cells.forEach((c, i) => {
       const pad = i === 0 ? 2 : 4;
       ctx.fillStyle = i === 0 ? pal.ink : withAlpha(pal.ink, 0.82);
-      ctx.fillRect(
-        ox + c.x * cs + pad,
-        oy + c.y * cs + pad,
-        cs - pad * 2,
-        cs - pad * 2,
-      );
+      ctx.fillRect(ox + c.x * cs + pad, oy + c.y * cs + pad, cs - pad * 2, cs - pad * 2);
     });
+
+    for (const t of tokens) {
+      drawToken(ctx, t.x, t.y, t.id);
+    }
   }
 
   function renderInvaders(ctx: CanvasRenderingContext2D) {
@@ -942,10 +1330,28 @@ export function createCartridge(
     ctx.fillStyle = withAlpha(pal.ink, 0.9);
     for (const b of invaders.bombs) ctx.fillRect(b.x - 2, b.y, 4, 8);
 
+    for (const t of tokens) drawToken(ctx, t.x, t.y, t.id);
+
     const cy = field.y + field.h - 36;
     ctx.fillStyle = pal.ink;
     ctx.fillRect(invaders.cannon.x - 12, cy, 24, 10);
     ctx.fillRect(invaders.cannon.x - 3, cy - 8, 6, 8);
+  }
+
+  function drawToken(ctx: CanvasRenderingContext2D, x: number, y: number, id: TokenId) {
+    ctx.fillStyle = "#c9a25a";
+    ctx.strokeStyle = withAlpha(pal.ink, 0.7);
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = pal.background;
+    ctx.font = '700 9px "Courier New", monospace';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(id === "widen" ? "W" : id === "slowpress" ? "S" : "§", x, y + 0.5);
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
   }
 
   function drawMarquee(ctx: CanvasRenderingContext2D) {
@@ -955,11 +1361,13 @@ export function createCartridge(
     ctx.fillText(spec.title.toUpperCase(), 10, 18);
     ctx.textAlign = "right";
     ctx.fillText(`SCORE ${String(score).padStart(5, "0")}`, W - 10, 18);
-    if (state === "playing") {
-      ctx.textAlign = "center";
+    ctx.textAlign = "center";
+    if (state === "playing" && combo >= 2) {
+      ctx.fillStyle = pal.accent;
+      ctx.fillText(`COMBO ×${combo}`, W / 2, 18);
+    } else {
       ctx.fillStyle = withAlpha(pal.ink, 0.75);
-      const sealsText = "SEALS " + "\u25c9 ".repeat(seals).trim();
-      ctx.fillText(sealsText, W / 2, 18);
+      ctx.fillText("SEALS " + "◉ ".repeat(Math.max(0, seals)).trim(), W / 2, 18);
     }
     ctx.textAlign = "left";
   }
@@ -969,7 +1377,7 @@ export function createCartridge(
     ctx.fillRect(0, 0, W, H);
 
     const cardW = 250;
-    const cardH = 132;
+    const cardH = 150;
     const cx = W / 2;
     const cy = H / 2;
     ctx.fillStyle = pal.field;
@@ -993,24 +1401,31 @@ export function createCartridge(
         : state === "paused"
           ? "SPACE or tap to resume"
           : `FINAL SCORE ${score}`;
+    const sub =
+      state === "won" || state === "lost"
+        ? combo >= 3
+          ? `BEST STREAK ×${combo}`
+          : "FILED TO THE LEDGER"
+        : "";
 
     ctx.fillStyle = pal.ink;
     ctx.textAlign = "center";
     ctx.font = '700 17px "Courier New", monospace';
-    ctx.fillText(heading, cx, cy - 12);
+    ctx.fillText(heading, cx, cy - 14);
     ctx.font = '400 12px "Courier New", monospace';
     ctx.fillStyle = withAlpha(pal.ink, 0.8);
-    ctx.fillText(detail, cx, cy + 12);
-    ctx.fillText(objectiveText(), cx, cy + 34);
+    ctx.fillText(detail, cx, cy + 8);
+    ctx.fillText(objectiveText(), cx, cy + 30);
+    if (sub) ctx.fillText(sub, cx, cy + 52);
     ctx.textAlign = "left";
   }
 
   function drawFrameOverlay(ctx: CanvasRenderingContext2D) {
     if (spec.frame === "none") return;
-    ctx.strokeStyle = withAlpha(pal.ink, 0.55);
-    ctx.lineWidth = 6;
-    ctx.strokeRect(field.x + 3, field.y + 3, field.w - 6, field.h - 6);
     if (spec.frame === "plaque") {
+      ctx.strokeStyle = withAlpha(pal.ink, 0.55);
+      ctx.lineWidth = 6;
+      ctx.strokeRect(field.x + 3, field.y + 3, field.w - 6, field.h - 6);
       ctx.strokeStyle = withAlpha("#c9a25a", 0.9);
       ctx.lineWidth = 2;
       const c = 18;
@@ -1020,24 +1435,88 @@ export function createCartridge(
         [field.x + 8, field.y + field.h - 8],
         [field.x + field.w - 8, field.y + field.h - 8],
       ];
-      for (const [x, y] of corners) {
-        ctx.strokeRect(x - c / 2, y - c / 2, c, c);
-      }
+      for (const [x, y] of corners) ctx.strokeRect(x - c / 2, y - c / 2, c, c);
     }
     if (spec.frame === "engraved") {
+      ctx.strokeStyle = withAlpha(pal.ink, 0.55);
+      ctx.lineWidth = 4;
+      ctx.strokeRect(field.x + 2, field.y + 2, field.w - 4, field.h - 4);
       ctx.strokeStyle = withAlpha(pal.ink, 0.35);
       ctx.lineWidth = 1;
       ctx.strokeRect(field.x + 12, field.y + 12, field.w - 24, field.h - 24);
       ctx.strokeRect(field.x + 18, field.y + 18, field.w - 36, field.h - 36);
+    }
+    if (spec.frame === "gilt") {
+      ctx.strokeStyle = "#c9a25a";
+      ctx.lineWidth = 8;
+      ctx.strokeRect(field.x + 4, field.y + 4, field.w - 8, field.h - 8);
+      ctx.strokeStyle = withAlpha("#8a5a2b", 0.9);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(field.x + 10, field.y + 10, field.w - 20, field.h - 20);
+      ctx.strokeStyle = withAlpha("#c9a25a", 0.55);
+      ctx.fillStyle = withAlpha("#c9a25a", 0.55);
+      for (let x = field.x + 16; x < field.x + field.w - 16; x += 16) {
+        for (const y of [field.y + 10, field.y + field.h - 10]) {
+          ctx.beginPath();
+          ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    if (spec.frame === "ticket") {
+      ctx.strokeStyle = withAlpha(pal.ink, 0.8);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(field.x + 2, field.y + 2, field.w - 4, field.h - 4);
+      ctx.fillStyle = pal.background;
+      for (let y = field.y + 8; y < field.y + field.h - 4; y += 12) {
+        ctx.beginPath();
+        ctx.arc(field.x + 2, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(field.x + field.w - 2, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.lineWidth = 1;
   }
 
   function drawScanlines(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
     ctx.fillStyle = "rgba(30, 20, 8, 0.06)";
-    for (let yy = y; yy < y + h; yy += 3) {
-      ctx.fillRect(x, yy, w, 1);
+    for (let yy = y; yy < y + h; yy += 3) ctx.fillRect(x, yy, w, 1);
+  }
+
+  /** Lithograph grain: fine stone-print speckle, re-seeded per frame. */
+  function drawGrain(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = "rgba(60, 40, 20, 0.05)";
+    for (let i = 0; i < 90; i++) {
+      const x = field.x + rng() * field.w;
+      const y = field.y + rng() * field.h;
+      ctx.fillRect(x, y, 1.2, 1.2);
     }
+  }
+
+  /** Electric varnish: soft brass glow around the playfield edges. */
+  function drawGlow(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    ctx.strokeStyle = withAlpha("#c9a25a", 0.35);
+    ctx.lineWidth = 10;
+    ctx.strokeRect(field.x + 5, field.y + 5, field.w - 10, field.h - 10);
+    ctx.strokeStyle = withAlpha("#fff8e6", 0.12);
+    ctx.lineWidth = 3;
+    ctx.strokeRect(field.x + 8, field.y + 8, field.w - 16, field.h - 16);
+    ctx.restore();
+  }
+
+  function drawBlackout(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = withAlpha(pal.background, 0.78);
+    ctx.fillRect(field.x, field.y, field.w, field.h);
+    const cx = ball.stuck ? bat.x : ball.x;
+    const cy2 = ball.stuck ? field.y + field.h - 34 : ball.y;
+    const grad = ctx.createRadialGradient(cx, cy2, 8, cx, cy2, 70);
+    grad.addColorStop(0, "rgba(255,248,230,0.16)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(field.x, field.y, field.w, field.h);
   }
 
   function drawVignette(ctx: CanvasRenderingContext2D) {
@@ -1059,17 +1538,11 @@ export function createCartridge(
     get hud() {
       return hud;
     },
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Canvas helpers
-// ---------------------------------------------------------------------------
-
-function withAlpha(hex: string, alpha: number): string {
-  const m = hex.replace("#", "");
-  const r = parseInt(m.slice(0, 2), 16);
-  const g = parseInt(m.slice(2, 4), 16);
-  const b = parseInt(m.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

@@ -15,12 +15,15 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import {
   DIAL_RANGES,
+  FINISH_OPTIONS,
   FRAME_OPTIONS,
   MOULD_BASE_PACE,
   MOULD_OPTIONS,
   PALETTE_OPTIONS,
+  TOKEN_META,
   TWIST_OPTIONS,
   type CartridgeSpec,
+  type FinishId,
   type FrameId,
   type MouldKind,
   type PaletteId,
@@ -43,6 +46,9 @@ interface Live {
   palette: PaletteId;
   frame: FrameId;
   twist: TwistId;
+  finish: FinishId;
+  tokens: number;
+  bells: boolean;
 }
 
 function defaultLive(mould: MouldKind): Live {
@@ -57,6 +63,9 @@ function defaultLive(mould: MouldKind): Live {
     palette: "sepia",
     frame: "plaque",
     twist: "none",
+    finish: "matte",
+    tokens: 2,
+    bells: false,
   };
 }
 
@@ -72,6 +81,9 @@ function liveToSpec(l: Live): CartridgeSpec {
     palette: l.palette,
     frame: l.frame,
     twist: l.twist,
+    finish: l.finish,
+    tokens: l.tokens,
+    bells: l.bells,
   };
 }
 
@@ -276,6 +288,18 @@ export default function Studio() {
                 }))}
               />
               <DialSelect
+                label="House tokens"
+                value={String(live.tokens)}
+                onChange={(v) => update("tokens", Number(v))}
+                options={range(0, DIAL_RANGES.tokens.max).map((n) => ({
+                  value: String(n),
+                  label: n === 0 ? "none" : `${n} drops`,
+                }))}
+              />
+              <p className="small-caps col-span-full text-sm text-muted-foreground">
+                — Cabinet dials —
+              </p>
+              <DialSelect
                 label="Colour treatment"
                 value={live.palette}
                 onChange={(v) => update("palette", v as PaletteId)}
@@ -302,12 +326,38 @@ export default function Studio() {
                   label: t.label,
                 }))}
               />
+              <DialSelect
+                label="Plate finish"
+                value={live.finish}
+                onChange={(v) => update("finish", v as FinishId)}
+                options={FINISH_OPTIONS.map((f) => ({
+                  value: f.id,
+                  label: f.label,
+                }))}
+              />
+              <DialSelect
+                label="Foundry bells"
+                value={live.bells ? "on" : "off"}
+                onChange={(v) => update("bells", v === "on")}
+                options={[
+                  { value: "off", label: "Silent pressing" },
+                  { value: "on", label: "Chiptune chimes" },
+                ]}
+              />
             </div>
 
-            <p className="font-pressing text-xs text-muted-foreground">
-              TWIST: {TWIST_OPTIONS.find((t) => t.id === live.twist)?.hint}
-            </p>
-
+            <div className="font-pressing space-y-1 text-xs text-muted-foreground">
+              <p>
+                TWIST: {TWIST_OPTIONS.find((t) => t.id === live.twist)?.hint}
+              </p>
+              <p>TOKENS: {TOKEN_META.map((t) => t.label).join(" / ")}</p>
+              <p>
+                FINISH: {FINISH_OPTIONS.find((f) => f.id === live.finish)?.hint}
+              </p>
+              <p>
+                FRAME: {FRAME_OPTIONS.find((f) => f.id === live.frame)?.hint}
+              </p>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button size="lg" onClick={handlePress} disabled={pressing}>
                 {pressing ? (

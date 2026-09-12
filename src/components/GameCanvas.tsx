@@ -1,8 +1,9 @@
 /**
  * GameCanvas — React wrapper around the cartridge engine.
  *
- * Owns the rAF loop, keyboard + touch input, and the archival HUD strip.
- * Remounts the cartridge whenever the spec changes (Studio live preview).
+ * Owns the rAF loop, keyboard + touch input, the archival HUD strip, and the
+ * foundry bells (chiptune chimes wired to engine events when the cartridge
+ * was pressed with bells: true).
  */
 
 import { Button } from "@/components/ui/button";
@@ -14,8 +15,10 @@ import {
   type HudState,
 } from "@/lib/game/engine";
 import type { CartridgeSpec } from "@/lib/game/moulds";
+import { FINISH_OPTIONS, FRAME_OPTIONS, PALETTE_OPTIONS } from "@/lib/game/moulds";
+import { createFoundryBells } from "@/lib/game/bells";
 import { cn } from "@/lib/utils";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const CANVAS_W = 360;
@@ -52,8 +55,27 @@ function CartridgeView({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const inputRef = useRef<EngineInput>(emptyInput());
   const [hud, setHud] = useState<HudState | null>(null);
+  const [muted, setMuted] = useState(true);
 
   const [cartridge] = useState(() => createCartridge(spec));
+
+  // Wire the foundry bells to engine events (only when the spec asks for them).
+  useEffect(() => {
+    if (!spec.bells) return;
+    const bells = createFoundryBells();
+    const off = cartridge.onEvent((event) => {
+      if (!mutedRef.current) bells.play(event);
+    });
+    return () => {
+      off();
+      bells.dispose();
+    };
+  }, [cartridge, spec.bells]);
+
+  const mutedRef = useRef(true);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
 
   // rAF loop
   useEffect(() => {
@@ -156,15 +178,25 @@ function CartridgeView({
     inputRef.current.right = false;
   }, []);
 
+  const paletteLabel = PALETTE_OPTIONS.find((p) => p.id === spec.palette)?.label;
+  const finishLabel = FINISH_OPTIONS.find((f) => f.id === spec.finish)?.label;
+
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       {showHud && hud && (
         <div className="rounded-md border bg-card/70 px-4 py-3">
           <div className="flex items-baseline justify-between gap-3">
             <p className="stamp text-[10px]">{spec.mould} mould</p>
-            <p className="font-pressing text-xs tracking-widest text-muted-foreground">
-              BEST {String(hud.best).padStart(5, "0")}
-            </p>
+            <div className="flex items-baseline gap-3">
+              {hud.combo >= 2 && (
+                <span className="font-pressing text-xs font-bold text-primary">
+                  COMBO ×{hud.combo}
+                </span>
+              )}
+              <p className="font-pressing text-xs tracking-widest text-muted-foreground">
+                BEST {String(hud.best).padStart(5, "0")}
+              </p>
+            </div>
           </div>
           <p className="mt-1 font-pressing text-sm">{hud.objective}</p>
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -181,7 +213,7 @@ function CartridgeView({
       )}
 
       <div
-        className="paper-lift relative mx-auto w-full max-w-[420px] touch-none select-none rounded-md border-2 bg-secondary/40 p-2"
+        className="bezel-riveted paper-lift relative mx-auto w-full max-w-[420px] touch-none select-none rounded-md border-2 bg-secondary/40 p-2"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -214,9 +246,23 @@ function CartridgeView({
             <RotateCcw className="size-4" />
             Reset
           </Button>
+          {spec.bells && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={muted ? "Ring the foundry bells" : "Silence the bells"}
+              onClick={() => setMuted((m) => !m)}
+            >
+              {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+              {muted ? "Bells off" : "Bells on"}
+            </Button>
+          )}
           <p className="font-pressing w-full text-center text-xs text-muted-foreground">
             ← → steer · SPACE fire / tap · P pause
             {hud.message ? ` · ${hud.message}` : ""}
+          </p>
+          <p className="small-caps w-full text-center text-[11px] text-muted-foreground">
+            {paletteLabel} · {finishLabel}
           </p>
         </div>
       )}

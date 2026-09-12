@@ -237,10 +237,13 @@ export default function Workshop() {
                     <CardContent className="flex flex-col gap-4">
                       <div className="font-pressing text-[11px] leading-5 tracking-wide text-muted-foreground">
                         <p>
-                          SPEED {spec.pace}/5 · FIXTURES {spec.hazards} ·{" "}
-                          {g.isPublic ? "ON DISPLAY" : "PRIVATE KEEPING"}
+                          SPEED {spec.pace}/5 · FIXTURES {spec.hazards} · TOKENS{" "}
+                          {spec.tokens} · {spec.finish.toUpperCase()}
                         </p>
-                        <p>{g.plays} PLAY{g.plays === 1 ? "" : "S"} TO DATE</p>
+                        <p>
+                          {g.isPublic ? "ON DISPLAY" : "PRIVATE KEEPING"} ·{" "}
+                          {g.plays} PLAY{g.plays === 1 ? "" : "S"} TO DATE
+                        </p>
                       </div>
                       <div className="flex gap-2">
                         <Button

@@ -15,10 +15,13 @@ const EXHIBITS: CartridgeSpec[] = [
     brickRows: 5,
     handling: 2,
     hazards: 0,
+    tokens: 3,
     pace: 3,
     palette: "sepia",
     frame: "plaque",
     twist: "none",
+    finish: "lithograph",
+    bells: true,
   }),
   normalizeSpec({
     mould: "snake",
@@ -26,10 +29,13 @@ const EXHIBITS: CartridgeSpec[] = [
     gridDensity: 3,
     handling: 5,
     hazards: 3,
+    tokens: 2,
     pace: 3,
     palette: "emerald",
     frame: "engraved",
     twist: "none",
+    finish: "matte",
+    bells: true,
   }),
   normalizeSpec({
     mould: "invaders",
@@ -37,10 +43,13 @@ const EXHIBITS: CartridgeSpec[] = [
     gridDensity: 6,
     handling: 2,
     hazards: 4,
+    tokens: 4,
     pace: 2,
-    palette: "cabinet",
-    frame: "engraved",
-    twist: "none",
+    palette: "nocturne",
+    frame: "gilt",
+    twist: "windfall",
+    finish: "electric",
+    bells: true,
   }),
 ];
 
@@ -100,7 +109,7 @@ export default function Landing() {
             <dl className="mt-10 grid max-w-md grid-cols-3 gap-4 text-center">
               {[
                 ["3", "cast-iron moulds"],
-                ["6", "dials per press"],
+                ["12", "dials per press"],
                 ["∞", "impressions"],
               ].map(([n, label]) => (
                 <div key={label} className="rounded-md border bg-card/60 px-3 py-3 paper-lift">
@@ -157,7 +166,7 @@ export default function Landing() {
               {
                 step: "II",
                 title: "Set the dials",
-                body: "Rows, columns, pace, handling, fixtures, palette, frame, twist — a row of dropdowns, each stamped with its setting.",
+                body: "Twelve of them: rows, pace, handling, fixtures, house tokens, palette, frame, twist, plate finish, foundry bells — each stamped with its setting.",
               },
               {
                 step: "III",
