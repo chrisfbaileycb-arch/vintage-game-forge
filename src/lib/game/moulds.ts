@@ -5,14 +5,19 @@
  * dropdown-selected values ("dials") that the corresponding engine executes.
  */
 
-export type MouldKind = "breakout" | "snake" | "invaders";
+export type MouldKind =
+  | "breakout"
+  | "snake"
+  | "invaders"
+  | "maze"
+  | "flyer";
 
 export interface CartridgeSpec {
   /** Which preset engine executes this spec. */
   mould: MouldKind;
   /** Speed of the game loop, 1 (gentle) .. 5 (frantic). */
   pace: number;
-  /** 0 .. 9, invader mould only (columns per rank). */
+  /** 0 .. 9, invader mould only (columns per rank); maze/flyer: corridor girth. */
   gridDensity: number;
   /** 0 .. 9, breakout mould only (rows of bricks). */
   brickRows: number;
@@ -145,7 +150,13 @@ export const DIAL_RANGES = {
   brickRows: { min: 0, max: 9 },
   handling: {
     min: 0,
-    byMould: { breakout: 3, snake: 9, invaders: 5 } as Record<MouldKind, number>,
+    byMould: {
+      breakout: 3,
+      snake: 9,
+      invaders: 5,
+      maze: 5,
+      flyer: 5,
+    } as Record<MouldKind, number>,
   },
   hazards: { min: 0, max: 9 },
   tokens: { min: 0, max: 9 },
@@ -180,12 +191,28 @@ export const MOULD_OPTIONS: {
     blurb: "Marching ranks descend; hold the line until the ranks are cleared.",
     dials: ["Grid density", "Formation speed", "Tokens", "Twist"],
   },
+  {
+    id: "maze",
+    name: "Mould №4 — Stereoscope",
+    tagline: "A first-person labyrinth",
+    blurb: "Walk the glass corridors of a cast maze in true first-person. Claim every checkpoint before the time fuse burns out.",
+    dials: ["Corridor girth", "Fuse length", "Tokens", "Twist"],
+  },
+  {
+    id: "flyer",
+    name: "Mould №5 — Aerodrome",
+    tagline: "Biplane through balloon barrages",
+    blurb: "Bank a biplane down a scrolling aerodrome, threading balloon barrages and ringing gates for bonus pay.",
+    dials: ["Barrage density", "Wind pace", "Tokens", "Twist"],
+  },
 ];
 
 export const MOULD_BASE_PACE: Record<MouldKind, number> = {
   breakout: 3,
   snake: 3,
   invaders: 2,
+  maze: 3,
+  flyer: 3,
 };
 
 /** Parse an unknown value into a valid palette, else default. */
@@ -227,7 +254,12 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
   const raw = (input ?? {}) as Record<string, unknown>;
   const mouldRaw = raw.mould;
   const mould: MouldKind =
-    mouldRaw === "snake" || mouldRaw === "invaders" ? mouldRaw : "breakout";
+    mouldRaw === "snake" ||
+    mouldRaw === "invaders" ||
+    mouldRaw === "maze" ||
+    mouldRaw === "flyer"
+      ? mouldRaw
+      : "breakout";
 
   const clamp = (v: unknown, min: number, max: number, dflt: number) => {
     const n = typeof v === "number" ? v : Number(v);
@@ -311,6 +343,8 @@ export function describeSpec(spec: CartridgeSpec): string[] {
   if (spec.mould === "invaders") parts.push(`grid of ${4 + spec.gridDensity}`);
   if (spec.mould === "snake") parts.push(`${12 + spec.gridDensity * 2} columns`);
   parts.push(DIAL_TERMS.handling.toLowerCase());
+  if (spec.mould === "maze") parts.push(`fuse ${100 + spec.pace * 30}s`);
+  if (spec.mould === "flyer") parts.push(`wind pace ${spec.pace}/5`);
   if (spec.hazards > 0) parts.push(`${spec.hazards} fixtures`);
   if (spec.tokens > 0) parts.push(`${spec.tokens} tokens`);
   if (spec.hue > 0) parts.push(`toned ${spec.hue}°`);

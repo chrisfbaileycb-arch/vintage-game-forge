@@ -28,10 +28,12 @@ export function GameCanvas({
   spec,
   className,
   showHud = true,
+  onSubmitScore,
 }: {
   spec: CartridgeSpec;
   className?: string;
   showHud?: boolean;
+  onSubmitScore?: (score: number) => void;
 }) {
   return (
     <CartridgeView
@@ -39,6 +41,7 @@ export function GameCanvas({
       spec={spec}
       className={className}
       showHud={showHud}
+      onSubmitScore={onSubmitScore}
     />
   );
 }
@@ -47,10 +50,12 @@ function CartridgeView({
   spec,
   className,
   showHud,
+  onSubmitScore,
 }: {
   spec: CartridgeSpec;
   className?: string;
   showHud: boolean;
+  onSubmitScore?: (score: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const inputRef = useRef<EngineInput>(emptyInput());
@@ -153,29 +158,61 @@ function CartridgeView({
   }, [cartridge]);
 
   // Touch: hold left/right half to steer, press to fire.
+  // First-person moulds: drag to look, vertical drag to walk.
   const touchActive = useRef(false);
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    touchActive.current = true;
-    inputRef.current.fire = true;
-    inputRef.current.left = x < 0.5;
-    inputRef.current.right = x >= 0.5;
-  }, []);
+  const touchMode = useRef<"steer" | "look" | null>(null);
+  const lastPointerX = useRef(0);
+  const lastPointerY = useRef(0);
+  const isLookMould = spec.mould === "maze" || spec.mould === "flyer";
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      touchActive.current = true;
+      lastPointerX.current = x;
+      lastPointerY.current = y;
+      touchMode.current = isLookMould ? "look" : "steer";
+      inputRef.current.fire = !isLookMould;
+      inputRef.current.left = !isLookMould && x < 0.5;
+      inputRef.current.right = !isLookMould && x >= 0.5;
+    },
+    [isLookMould],
+  );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!touchActive.current) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
-    inputRef.current.left = x < 0.5;
-    inputRef.current.right = x >= 0.5;
-  }, []);
+    const y = (e.clientY - rect.top) / rect.height;
+    if (touchMode.current === "look") {
+      const dx = x - lastPointerX.current;
+      const dy = y - lastPointerY.current;
+      lastPointerX.current = x;
+      lastPointerY.current = y;
+      // drag-to-turn / drag-to-move; also fire for the flyer's throttle
+      inputRef.current.left = dx < -0.01;
+      inputRef.current.right = dx > 0.01;
+      inputRef.current.up = dy < -0.02 || Math.abs(dx) > 0.02;
+      inputRef.current.down = dy > 0.02;
+      if (spec.mould === "flyer") inputRef.current.up = true;
+      return;
+    }
+    // steer mode: hold left/right half
+    const sx = x < 0.5;
+    inputRef.current.left = sx;
+    inputRef.current.right = !sx;
+  }, [spec.mould]);
 
   const onPointerUp = useCallback(() => {
     touchActive.current = false;
+    touchMode.current = null;
     inputRef.current.fire = false;
     inputRef.current.left = false;
     inputRef.current.right = false;
+    inputRef.current.up = false;
+    inputRef.current.down = false;
   }, []);
 
   const paletteLabel = PALETTE_OPTIONS.find((p) => p.id === spec.palette)?.label;
@@ -229,6 +266,11 @@ function CartridgeView({
 
       {showHud && hud && (
         <div className="mx-auto flex w-full max-w-[420px] flex-wrap items-center justify-center gap-2">
+          {onSubmitScore && (hud.state === "won" || hud.state === "lost") && (
+            <Button size="sm" variant="outline" onClick={() => onSubmitScore(hud.score)}>
+              File score to the ledger
+            </Button>
+          )}
           <Button size="sm" onClick={() => cartridge.start()}>
             <Play className="size-4" />
             {hud.state === "playing" ? "Restart" : "Press Play"}
@@ -258,7 +300,9 @@ function CartridgeView({
             </Button>
           )}
           <p className="font-pressing w-full text-center text-xs text-muted-foreground">
-            ← → steer · SPACE fire / tap · P pause
+            {isLookMould
+              ? "← → turn · ↑ walk · SPACE start · P pause"
+              : "← → steer · SPACE fire / tap · P pause"}
             {hud.message ? ` · ${hud.message}` : ""}
           </p>
           <p className="small-caps w-full text-center text-[11px] text-muted-foreground">

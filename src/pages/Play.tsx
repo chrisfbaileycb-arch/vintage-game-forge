@@ -12,7 +12,7 @@ import {
   type CartridgeSpec,
 } from "@/lib/game/moulds";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, Copy, Share2 } from "lucide-react";
+import { ArrowLeft, Copy, Share2, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -61,6 +61,33 @@ export default function Play() {
       void recordPlay({ id: validId });
     }
   }, [validId, game, counted, recordPlay]);
+
+  const leaderboard = useQuery(
+    api.games.leaderboard,
+    validId ? { gameId: validId, limit: 10 } : "skip",
+  );
+  const submitScore = useMutation(api.games.submitScore);
+  const [submitting, setSubmitting] = useState(false);
+  const [submittedScore, setSubmittedScore] = useState<number | null>(null);
+
+  const handleSubmitScore = async (score: number) => {
+    if (!validId || submitting) return;
+    setSubmitting(true);
+    try {
+      const result = await submitScore({ gameId: validId, score, combo: 0 });
+      setSubmittedScore(score);
+      toast.success(
+        score >= result.best
+          ? "A new house record!"
+          : "Score filed to the ledger.",
+        { description: `Best on this cartridge: ${result.best}` },
+      );
+    } catch {
+      toast.error("Could not file the score.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const spec: CartridgeSpec | null = looseSpec
     ? looseSpec
@@ -213,7 +240,12 @@ export default function Play() {
             {spec ? (
               <Card className="border-2 bg-card/80 paper-lift">
                 <CardContent className="pt-6">
-                  <GameCanvas spec={spec} />
+                  <GameCanvas
+                    spec={spec}
+                    onSubmitScore={
+                      validId && !submittedScore ? handleSubmitScore : undefined
+                    }
+                  />
                 </CardContent>
               </Card>
             ) : (
@@ -223,6 +255,37 @@ export default function Play() {
             )}
           </div>
         </section>
+
+        {/* Ledger of top scores */}
+        {validId && leaderboard && leaderboard.length > 0 && (
+          <>
+            <div className="rule-double" />
+            <section className="py-10">
+              <div className="flex items-center gap-3">
+                <Trophy className="size-5 text-primary" />
+                <h2 className="engraved text-2xl font-semibold">
+                  The house ledger — top scores
+                </h2>
+              </div>
+              <ol className="font-pressing mt-6 max-w-xl space-y-2 text-xs tracking-wide">
+                {leaderboard.map((entry, i) => (
+                  <li
+                    key={entry._id}
+                    className="flex items-baseline justify-between rounded-md border bg-card/60 px-4 py-2 paper-lift"
+                  >
+                    <span className="text-muted-foreground">
+                      {String(i + 1).padStart(2, "0")}. {entry.playerName}
+                    </span>
+                    <span className="text-foreground">
+                      {entry.score.toLocaleString()} pts
+                      {entry.combo > 1 ? ` · ×${entry.combo} streak` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          </>
+        )}
 
         {/* Display case */}
         <div className="rule-double" />

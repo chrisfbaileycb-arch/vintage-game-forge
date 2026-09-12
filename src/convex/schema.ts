@@ -43,10 +43,36 @@ const schema = defineSchema(
       userId: v.id("users"),
       isPublic: v.boolean(),
       plays: v.number(),
+      playCount: v.number(), // ledger of registered runs (replaces plays going forward)
+      bestScore: v.number(),
       createdAt: v.number(),
+      updatedAt: v.number(),
     })
       .index("by_user", ["userId", "createdAt"])
-      .index("by_public", ["isPublic", "plays"]),
+      .index("by_public", ["isPublic", "plays"])
+      .index("by_mould", ["mould"])
+      .index("by_public_recent", ["isPublic", "createdAt"]),
+
+    // High scores: one ledger entry per submitted run.
+    scores: defineTable({
+      gameId: v.id("gameDesigns"),
+      userId: v.optional(v.id("users")),
+      playerName: v.string(),
+      score: v.number(),
+      combo: v.number(),
+      createdAt: v.number(),
+    })
+      .index("by_game", ["gameId", "score"])
+      .index("by_user", ["userId", "createdAt"]),
+
+    // Per-user aggregate counters, one row per user.
+    counters: defineTable({
+      userId: v.id("users"),
+      presses: v.number(),
+      plays: v.number(),
+      totalScore: v.number(),
+      bestScore: v.number(),
+    }).index("by_user", ["userId"]),
   },
   {
     schemaValidation: false,

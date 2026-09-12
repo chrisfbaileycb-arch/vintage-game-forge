@@ -32,8 +32,8 @@ import {
 } from "@/lib/game/moulds";
 import { useMutation } from "convex/react";
 import { Factory, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 interface Live {
@@ -100,9 +100,34 @@ function range(min: number, max: number): number[] {
 export default function Studio() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const press = useMutation(api.games.press);
+  const remaster = useMutation(api.games.remaster);
 
-  const [live, setLive] = useState<Live>(defaultLive("breakout"));
+  const remasterJob = (location.state as { remaster?: { spec: CartridgeSpec; mould: MouldKind; title: string; id?: string } } | null)?.remaster;
+
+  const [live, setLive] = useState<Live>(() => {
+    if (remasterJob) {
+      const s = remasterJob.spec;
+      return {
+        title: remasterJob.title,
+        mould: s.mould,
+        pace: s.pace,
+        gridDensity: s.gridDensity,
+        brickRows: s.brickRows,
+        handling: s.handling,
+        hazards: s.hazards,
+        palette: s.palette,
+        frame: s.frame,
+        twist: s.twist,
+        finish: s.finish,
+        tokens: s.tokens,
+        bells: s.bells,
+        hue: s.hue ?? 0,
+      };
+    }
+    return defaultLive("breakout");
+  });
   const [pressing, setPressing] = useState(false);
 
   const spec = useMemo(() => liveToSpec(live), [live]);
@@ -125,10 +150,15 @@ export default function Studio() {
   async function handlePress() {
     setPressing(true);
     try {
-      const id = await press({ title: live.title, spec });
-      toast.success("Cartridge pressed and sealed.", {
-        description: "It has been filed in your Workshop catalogue.",
-      });
+      if (remasterJob?.id) {
+        await remaster({ id: remasterJob.id as never, spec });
+        toast.success("Cartridge remastered — same label, new dials.");
+      } else {
+        await press({ title: live.title, spec });
+        toast.success("Cartridge pressed and sealed.", {
+          description: "It has been filed in your Workshop catalogue.",
+        });
+      }
       navigate("/workshop");
     } catch (error) {
       console.error(error);
@@ -381,7 +411,11 @@ export default function Studio() {
                 ) : (
                   <Factory className="size-4" />
                 )}
-                {pressing ? "Pressing…" : "Press & seal cartridge"}
+                {pressing
+                  ? "Pressing…"
+                  : remasterJob?.id
+                    ? "Remaster & reseal cartridge"
+                    : "Press & seal cartridge"}
               </Button>
               <Button
                 size="lg"

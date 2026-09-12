@@ -31,6 +31,7 @@ import {
   catalogueNumber,
   normalizeSpec,
   type CartridgeSpec,
+  type MouldKind,
 } from "@/lib/game/moulds";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -54,6 +55,8 @@ export default function Workshop() {
   const removeGame = useMutation(api.games.remove);
   const renameGame = useMutation(api.games.rename);
   const setPublicGame = useMutation(api.games.setPublic);
+  const remasterGame = useMutation(api.games.remaster);
+  const stats = useQuery(api.games.myStats);
 
   const [playing, setPlaying] = useState<CartridgeSpec | null>(null);
   const [playingTitle, setPlayingTitle] = useState("");
@@ -107,6 +110,13 @@ export default function Workshop() {
     }
   };
 
+  /** Re-press: same cartridge, dials re-cast in the Studio. */
+  function repress(id: Id<"gameDesigns">, spec: CartridgeSpec, title: string) {
+    navigate("/studio", {
+      state: { remaster: { id, spec, mould: spec.mould, title } },
+    });
+  }
+
   return (
     <div className="paper-texture min-h-screen">
       <div className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
@@ -141,6 +151,12 @@ export default function Workshop() {
             <h1 className="engraved text-3xl font-semibold">
               Your cartridge catalogue
             </h1>
+            {stats && (
+              <p className="font-pressing text-xs tracking-widest text-muted-foreground">
+                {stats.presses} PRESSED · {stats.plays} RUNS · BEST{" "}
+                {stats.bestScore.toLocaleString()}
+              </p>
+ )}
             {games && (
               <p className="font-pressing text-xs tracking-widest text-muted-foreground">
                 {games.length} FILED
@@ -207,6 +223,12 @@ export default function Workshop() {
                               className="cursor-pointer"
                             >
                               <Pencil className="mr-2 size-4" /> Re-engrave label
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => repress(g._id, spec, g.title)}
+                              className="cursor-pointer"
+                            >
+                              <Factory className="mr-2 size-4" /> Re-press with new dials
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleTogglePublic(g._id, !g.isPublic)}

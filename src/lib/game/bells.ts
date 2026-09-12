@@ -14,7 +14,9 @@ export type BellEvent =
   | "sealLost"
   | "won"
   | "lost"
-  | "combo";
+  | "combo"
+  | "checkpoint"
+  | "gate";
 
 const NOTES_HZ: Record<BellEvent, number> = {
   brick: 660,
@@ -25,6 +27,8 @@ const NOTES_HZ: Record<BellEvent, number> = {
   won: 1046.5,
   lost: 146.83,
   combo: 880,
+  checkpoint: 987.77,
+  gate: 739.99,
 };
 
 export interface FoundryBells {
@@ -99,6 +103,12 @@ export function createFoundryBells(): FoundryBells {
           return;
         case "lost":
           tone(NOTES_HZ.lost, 0.4, 0.08);
+          return;
+        case "checkpoint":
+          tone(NOTES_HZ.checkpoint, 0.16, 0.07);
+          return;
+        case "gate":
+          tone(NOTES_HZ.gate, 0.13, 0.06);
           return;
       }
     },

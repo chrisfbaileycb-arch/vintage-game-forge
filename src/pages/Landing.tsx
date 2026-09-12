@@ -40,13 +40,28 @@ const EXHIBITS: CartridgeSpec[] = [
     hue: 105,
   }),
   normalizeSpec({
-    mould: "invaders",
-    title: "SENTINEL RANKS",
-    gridDensity: 6,
-    handling: 2,
+    mould: "maze",
+    title: "THE GLASS CORRIDORS",
+    gridDensity: 2,
+    handling: 3,
     hazards: 4,
     tokens: 4,
-    pace: 2,
+    pace: 3,
+    palette: "blueprint",
+    frame: "engraved",
+    twist: "none",
+    finish: "lithograph",
+    bells: true,
+    hue: 0,
+  }),
+  normalizeSpec({
+    mould: "flyer",
+    title: "AERODROME NO. 5",
+    gridDensity: 3,
+    handling: 2,
+    hazards: 3,
+    tokens: 3,
+    pace: 3,
     palette: "nocturne",
     frame: "gilt",
     twist: "windfall",
@@ -111,8 +126,8 @@ export default function Landing() {
             </div>
             <dl className="mt-10 grid max-w-md grid-cols-3 gap-4 text-center">
               {[
-                ["6", "colour recipes"],
-                ["24", "toning baths"],
+                ["5", "cast-iron moulds"],
+                ["144", "colourways"],
                 ["∞", "impressions"],
               ].map(([n, label]) => (
                 <div key={label} className="rounded-md border bg-card/60 px-3 py-3 paper-lift">
@@ -137,14 +152,15 @@ export default function Landing() {
           </div>
           <div className="lg:col-span-2 rounded-lg border-2 bg-card/80 p-4 paper-lift">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="stamp text-[10px]">EXHIBITS B & C</p>
+              <p className="stamp text-[10px]">EXHIBITS B, C & D</p>
               <p className="font-pressing text-[10px] tracking-widest text-muted-foreground">
-                TWO FURTHER SPECIMENS — PLAYABLE
+                THREE FURTHER SPECIMENS — PLAYABLE
               </p>
             </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              <GameCanvas spec={EXHIBITS[1]!} />
-              <GameCanvas spec={EXHIBITS[2]!} />
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {[EXHIBITS[1], EXHIBITS[2], EXHIBITS[3]].map(
+                (exhibit, i) => exhibit ? <GameCanvas key={i} spec={exhibit} /> : null,
+              )}
             </div>
           </div>
         </section>
@@ -164,7 +180,7 @@ export default function Landing() {
               {
                 step: "I",
                 title: "Select a mould",
-                body: "Three cast-iron moulds in the rack: the Breaker, the Serpent, and the Sentinels. Each casts a different species of game.",
+                body: "Five cast-iron moulds in the rack: the Breaker, the Serpent, the Sentinels, the Stereoscope (a true first-person maze), and the Aerodrome.",
               },
               {
                 step: "II",

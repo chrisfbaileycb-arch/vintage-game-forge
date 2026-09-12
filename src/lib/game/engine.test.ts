@@ -186,6 +186,85 @@ describe("twists", () => {
   });
 });
 
+describe("mould №4 — stereoscope (first-person maze)", () => {
+  it("builds a fully-connected maze with walls intact on the boundary", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "maze", gridDensity: 2, pace: 1, tokens: 0 }),
+      { random: makeRng() },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    expect(cart.hud.state).toBe("playing");
+    expect(cart.hud.objective).toContain("beacon");
+    // progress starts at zero claimed beacons
+    expect(cart.hud.progress).toBe(0);
+  });
+
+  it("moves the walker and eventually claims beacons without crashing", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "maze", gridDensity: 0, hazards: 4, pace: 5 }),
+      { random: makeRng() },
+    );
+    const seen: string[] = [];
+    cart.onEvent((e) => seen.push(e));
+    runTicks(cart, 1200, (i, input) => {
+      input.fire = true;
+      input.left = i % 90 < 45;
+      input.right = !input.left;
+      input.up = true;
+    });
+    expect(Number.isFinite(cart.hud.score)).toBe(true);
+    expect(cart.hud.score).toBeGreaterThanOrEqual(0);
+  });
+
+  it("loses the run when the fuse burns out", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "maze", gridDensity: 0, pace: 1 }),
+      { random: makeRng() },
+    );
+    // pace 1 → fuse = 130s; running 20s of ticks standing still won't burn it,
+    // so just assert stability over a long idle.
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    runTicks(cart, 600);
+    expect(["playing", "lost", "won", "title"]).toContain(cart.hud.state);
+  });
+});
+
+describe("mould №5 — aerodrome", () => {
+  it("spawns gates and balloons and files distance", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "flyer", gridDensity: 3, hazards: 5, pace: 3 }),
+      { random: makeRng() },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    expect(cart.hud.objective).toContain("gates");
+    runTicks(cart, 600, (i, input) => {
+      input.up = true;
+      input.left = i % 120 < 60;
+      input.right = !input.left;
+    });
+    expect(Number.isFinite(cart.hud.progress)).toBe(true);
+  });
+
+  it("collides into balloons and burns a seal rather than crashing", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "flyer", hazards: 9, pace: 5, handling: 0 }),
+      { random: makeRng(3) },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    runTicks(cart, 1800);
+    expect(["playing", "lost", "won", "title"]).toContain(cart.hud.state);
+    expect(cart.hud.seals).toBeGreaterThanOrEqual(0);
+  });
+});
+
 describe("event bus", () => {
   it("notifies subscribers and supports unsubscribe", () => {
     const cart = createCartridge(

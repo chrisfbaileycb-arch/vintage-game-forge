@@ -182,7 +182,9 @@ export type FoundryEvent =
   | "sealLost"
   | "won"
   | "lost"
-  | "combo";
+  | "combo"
+  | "checkpoint"
+  | "gate";
 
 export type FoundryListener = (event: FoundryEvent) => void;
 
@@ -691,6 +693,9 @@ export function createCartridge(
   function objectiveText(): string {
     if (spec.mould === "breakout") return "Clear the wall of bricks";
     if (spec.mould === "snake") return `Consume ${snake.target} marks`;
+    if (spec.mould === "maze")
+      return `Claim every beacon before the fuse burns`;
+    if (spec.mould === "flyer") return "Ring the gates, dodge the balloons";
     return "Rout the descending ranks";
   }
 
@@ -704,6 +709,19 @@ export function createCartridge(
       return {
         label: `${snake.eaten}/${snake.target} marks`,
         value: snake.eaten / snake.target,
+      };
+    }
+    if (spec.mould === "maze") {
+      const total = maze.claimed + maze.checkpoints.length || 1;
+      return {
+        label: `${maze.claimed}/${total} beacons`,
+        value: maze.claimed / total,
+      };
+    }
+    if (spec.mould === "flyer") {
+      return {
+        label: `${Math.floor(flyer.distance * 100)} yards flown`,
+        value: (flyer.distance % 10) / 10,
       };
     }
     const total = invaders.alive.length || 1;
@@ -746,6 +764,17 @@ export function createCartridge(
     }
     publishScore(reason);
     if (spec.mould === "breakout") resetBall();
+    if (spec.mould === "maze") {
+      maze.elapsed = Math.max(0, maze.elapsed - maze.fuse * 0.25);
+      maze.px = 0.5 + 0.001;
+      maze.py = 0.5 + 0.001;
+      maze.heading = 0;
+    }
+    if (spec.mould === "flyer") {
+      flyer.plane.y = 0.5;
+      flyer.plane.vy = 0;
+      flyer.balloons = flyer.balloons.filter((b) => b.x > 0.3 || b.x < 0);
+    }
     if (spec.mould === "snake") {
       snake.cells = [];
       const midY = Math.floor(snake.rows / 2);
@@ -780,6 +809,9 @@ export function createCartridge(
     buildBreakout();
     buildSnake();
     buildInvaders();
+    buildMaze();
+    buildFlyer();
+    flyerSpawn = 0;
     resetBall();
     publishScore();
   }
@@ -926,6 +958,261 @@ export function createCartridge(
       return;
     }
     if (bricks.every((b) => !b.alive)) winRun();
+  }
+
+  // ----- Update: Serpent -------------------------------------------------------
+
+  // ----- Mould: Stereoscope (first-person maze) ---------------------------------
+
+  interface Cell {
+    north: boolean;
+    east: boolean;
+    south: boolean;
+    west: boolean;
+  }
+
+  const maze = {
+    cells: [] as Cell[],
+    cols: 8,
+    rows: 8,
+    px: 1.5,
+    py: 1.5,
+    heading: 0,
+    checkpoints: [] as { x: number; y: number }[],
+    claimed: 0,
+    fuse: 120,
+    elapsed: 0,
+  };
+
+  function buildMaze() {
+    const girth = 8 + clamp(spec.gridDensity, 0, 9) * 2;
+    maze.cols = girth;
+    maze.rows = girth;
+    maze.cells = [];
+    for (let i = 0; i < maze.cols * maze.rows; i++) {
+      maze.cells.push({ north: true, east: true, south: true, west: true });
+    }
+    // Iterative DFS carve (stack-based, deterministic under the injected rng).
+    const visited = new Array(maze.cols * maze.rows).fill(false);
+    const stack: number[] = [0];
+    visited[0] = true;
+    const neighbours = (idx: number) => {
+      const col = idx % maze.cols;
+      const row = Math.floor(idx / maze.cols);
+      const out: { idx: number; wall: "north" | "east" | "south" | "west"; opp: "north" | "east" | "south" | "west" }[] = [];
+      if (row > 0) out.push({ idx: idx - maze.cols, wall: "north", opp: "south" });
+      if (col < maze.cols - 1) out.push({ idx: idx + 1, wall: "east", opp: "west" });
+      if (row < maze.rows - 1) out.push({ idx: idx + maze.cols, wall: "south", opp: "north" });
+      if (col > 0) out.push({ idx: idx - 1, wall: "west", opp: "east" });
+      return out;
+    };
+    while (stack.length > 0) {
+      const cur = stack[stack.length - 1];
+      const opts = neighbours(cur).filter((n) => !visited[n.idx]);
+      if (opts.length === 0) {
+        stack.pop();
+        continue;
+      }
+      const pick = opts[randInt(opts.length)];
+      maze.cells[cur][pick.wall] = false;
+      maze.cells[pick.idx][pick.opp] = false;
+      visited[pick.idx] = true;
+      stack.push(pick.idx);
+    }
+    // Braided shortcuts (skip when hazards dial is low → keep it a pure maze).
+    if (spec.hazards >= 3) {
+      const shortcuts = Math.floor((spec.hazards - 2) * 1.5);
+      for (let i = 0; i < shortcuts; i++) {
+        const idx = randInt(maze.cells.length);
+        const col = idx % maze.cols;
+        const row = Math.floor(idx / maze.cols);
+        if (col < maze.cols - 1 && maze.cells[idx].east) {
+          maze.cells[idx].east = false;
+          maze.cells[idx + 1].west = false;
+        }
+      }
+    }
+    maze.px = 0.5 + 0.001;
+    maze.py = 0.5 + 0.001;
+    maze.heading = 0;
+    maze.checkpoints = [];
+    maze.claimed = 0;
+    maze.fuse = 100 + spec.pace * 30;
+    maze.elapsed = 0;
+    const farthest = maze.cols * maze.rows - 1;
+    for (let i = 0; i < Math.max(3, spec.tokens + 2); i++) {
+      maze.checkpoints.push({
+        x: (randInt(maze.cols - 2) + 1) + 0.5,
+        y: (randInt(maze.rows - 2) + 1) + 0.5,
+      });
+    }
+    void farthest;
+    refillTokenBudget();
+  }
+
+  function mazeWallAt(x: number, y: number): boolean {
+    const col = Math.floor(x);
+    const row = Math.floor(y);
+    if (col < 0 || row < 0 || col >= maze.cols || row >= maze.rows) return true;
+    const c = maze.cells[row * maze.cols + col];
+    const fx = x - col;
+    const fy = y - row;
+    if (fy < 0.12 && c.north) return true;
+    if (fx > 0.88 && c.east) return true;
+    if (fy > 0.76 && c.south) return true;
+    if (fy > 0.12 && c.south) return false;
+    if (fx < 0.12 && c.west) return true;
+    return false;
+  }
+
+  function updateMaze(dt: number, input: EngineInput) {
+    const turn = 2.6 * dt;
+    const walk = 1.55 * (0.8 + spec.pace * 0.12) * dt;
+    if (input.left) maze.heading -= turn;
+    if (input.right) maze.heading += turn;
+    const dx = Math.cos(maze.heading);
+    const dy = Math.sin(maze.heading);
+    let moved = false;
+    if (input.up) {
+      const nx = maze.px + dx * walk;
+     const ny = maze.py + dy * walk;
+      if (!mazeWallAt(nx, maze.py)) maze.px = nx;
+      if (!mazeWallAt(maze.px, ny)) maze.py = ny;
+      moved = true;
+    }
+    if (input.down) {
+      const nx = maze.px - dx * walk;
+      const ny = maze.py - dy * walk;
+      if (!mazeWallAt(nx, maze.py)) maze.px = nx;
+      if (!mazeWallAt(maze.px, ny)) maze.py = ny;
+      moved = true;
+      breakCombo();
+    }
+    if (moved) {
+      score += windfallScore(1);
+    }
+    maze.elapsed += dt;
+    if (maze.elapsed >= maze.fuse) {
+      loseRun("The time fuse burned out");
+      return;
+    }
+    for (let i = maze.checkpoints.length - 1; i >= 0; i--) {
+      const cp = maze.checkpoints[i];
+      if (
+        Math.hypot(cp.x - maze.px, cp.y - maze.py) < 0.45
+      ) {
+        maze.checkpoints.splice(i, 1);
+        maze.claimed += 1;
+        score += windfallScore(scoreCombo(150));
+        emit("checkpoint");
+        emit("combo");
+        shake(1);
+        burst(W / 2, H / 2, 18, [pal.accent, pal.ink, "#c9a25a"], 120, 40);
+      }
+    }
+    if (maze.checkpoints.length === 0) winRun();
+  }
+
+  // ----- Mould: Aerodrome ---------------------------------------------------------
+
+  const flyer = {
+    plane: { y: 0.5, vy: 0, tilt: 0 },
+    gates: [] as { x: number; y: number; w: number; hit: boolean }[],
+    balloons: [] as { x: number; y: number; r: number; phase: number }[],
+    tokens: [] as { x: number; y: number; id: TokenId }[],
+    distance: 0,
+    bombTimer: 0,
+  };
+
+  function buildFlyer() {
+    flyer.plane = { y: 0.5, vy: 0, tilt: 0 };
+    flyer.gates = [];
+    flyer.balloons = [];
+    flyer.tokens = [];
+    flyer.distance = 0;
+    flyer.bombTimer = 0;
+    refillTokenBudget();
+  }
+  let flyerSpawn = 0;
+
+  function updateFlyer(dt: number, input: EngineInput) {
+    const wind = 0.32 + spec.pace * 0.09;
+    flyer.distance += wind * dt;
+    flyer.plane.vy += (input.up ? -1.6 : 0) * dt + (input.down ? 1.6 : 0) * dt;
+    flyer.plane.vy *= 0.92;
+    flyer.plane.y = clamp(flyer.plane.y + flyer.plane.vy * dt, 0.06, 0.94);
+    flyer.plane.tilt = clamp(flyer.plane.vy * 0.6, -0.5, 0.5);
+    flyerSpawn -= dt;
+    if (flyerSpawn <= 0) {
+      flyerSpawn = Math.max(0.9, 1.9 - spec.hazards * 0.12) / (0.7 + spec.pace * 0.12);
+      const gy = 0.15 + rng() * 0.7;
+      flyer.gates.push({ x: 1.15, y: gy, w: 0.16 + spec.handling * 0.012, hit: false });
+      if (rng() < 0.5 + spec.hazards * 0.04) {
+        flyer.balloons.push({
+          x: 1.25 + rng() * 0.2,
+          y: rng(),
+          r: 0.045 + rng() * 0.02,
+          phase: rng() * Math.PI * 2,
+        });
+      }
+      if (tokenBudget > 0 && rng() < 0.25) {
+        const ids: TokenId[] = ["widen", "slowpress", "windfall"];
+        flyer.tokens.push({ x: 1.2, y: rng(), id: ids[Math.floor(rng() * ids.length)] });
+      }
+    }
+    const scroll = wind * dt;
+    for (const g of flyer.gates) g.x -= scroll;
+    for (const b of flyer.balloons) {
+      b.x -= scroll;
+      b.phase += dt * 1.4;
+      b.y += Math.sin(b.phase) * 0.05 * dt;
+    }
+    for (const t of flyer.tokens) t.x -= scroll;
+    flyer.gates = flyer.gates.filter((g) => g.x > -0.2);
+    flyer.balloons = flyer.balloons.filter((b) => b.x > -0.15);
+    flyer.tokens = flyer.tokens.filter((t) => t.x > -0.15);
+    // gate crossings: the plane sits at x ≈ 0.22 of the field
+    for (const g of flyer.gates) {
+      if (g.hit) continue;
+      if (g.x <= 0.24 && g.x > 0.1) {
+        g.hit = true;
+        if (Math.abs(flyer.plane.y - g.y) < g.w / 2 + 0.03) {
+          score += windfallScore(scoreCombo(120));
+          emit("gate");
+          emit("combo");
+          burst(W * 0.24, field.y + field.h * (0.32 + g.y * 0.6), 10, [pal.accent, "#c9a25a"], 80, 40);
+        } else {
+          breakCombo();
+        }
+      }
+    }
+    // balloon collisions
+    for (const b of flyer.balloons) {
+      const bx = b.x;
+      const by = b.y;
+      if (
+        Math.abs(bx - 0.22) < b.r + 0.03 &&
+        Math.abs(by - flyer.plane.y) < b.r * 1.4 + 0.04
+      ) {
+        b.x = -1;
+        loseRun("A barrage balloon burst against the plane");
+        return;
+      }
+    }
+    // house tokens drift into the plane
+    for (const t of flyer.tokens) {
+      if (
+        Math.abs(t.x - 0.22) < 0.04 &&
+        Math.abs(t.y - flyer.plane.y) < 0.06
+      ) {
+        applyToken(t.id);
+        t.x = -1;
+      }
+    }
+    if (spec.twist === "decade" && score >= 500) {
+      winRun();
+      return;
+    }
   }
 
   // ----- Update: Serpent -------------------------------------------------------
@@ -1200,6 +1487,8 @@ export function createCartridge(
     const step = Math.min(dt, 0.033);
     if (spec.mould === "breakout") updateBreakout(step, input);
     else if (spec.mould === "snake") updateSnake(step, input);
+    else if (spec.mould === "maze") updateMaze(step, input);
+    else if (spec.mould === "flyer") updateFlyer(step, input);
     else updateInvaders(step, input);
     tickEffects(step);
     tickBlackout(step);
@@ -1240,6 +1529,8 @@ export function createCartridge(
 
     if (spec.mould === "breakout") renderBreakout(ctx);
     else if (spec.mould === "snake") renderSnake(ctx);
+    else if (spec.mould === "maze") renderMaze(ctx);
+    else if (spec.mould === "flyer") renderFlyer(ctx);
     else renderInvaders(ctx);
 
     renderParticles(ctx);
@@ -1259,6 +1550,173 @@ export function createCartridge(
 
     if (state !== "playing") drawStateCard(ctx);
     ctx.restore();
+  }
+
+  // ----- Mould: Stereoscope rendering (raycast walls) ------------------------
+
+  function renderMaze(ctx: CanvasRenderingContext2D) {
+    const cx = field.x + field.w / 2;
+    const fovHalf = Math.PI / 4;
+    const rays = 72;
+    const colW = field.w / rays;
+    const maxDepth = 14;
+    const sky = withAlpha(pal.background, 1);
+    const floorY = field.y + field.h * 0.62;
+    ctx.fillStyle = sky;
+    ctx.fillRect(field.x, field.y, field.w, floorY - field.y);
+    ctx.fillStyle = withAlpha(pal.grid, 0.55);
+    ctx.fillRect(field.x, floorY, field.w, field.y + field.h - floorY);
+    ctx.fillStyle = withAlpha(pal.grid, 0.35);
+    for (let i = 0; i < 26; i++) {
+      const y = floorY + (i / 26) ** 1.6 * (field.y + field.h - floorY);
+      ctx.fillRect(field.x, y, field.w, 1);
+    }
+    for (let i = 0; i < rays; i++) {
+      const angle = maze.heading - fovHalf + (i / (rays - 1)) * fovHalf * 2;
+      const dirX = Math.cos(angle);
+      const dirY = Math.sin(angle);
+      let dist = 0;
+      let side = 0;
+      const stepLen = 0.02;
+      let px = maze.px;
+      let py = maze.py;
+      while (dist < maxDepth) {
+        px += dirX * stepLen;
+        py += dirY * stepLen;
+        dist += stepLen;
+        if (mazeWallAt(px, py)) break;
+      }
+      if (dist >= maxDepth) {
+        ctx.fillStyle = withAlpha(pal.grid, 0.12);
+        ctx.fillRect(field.x + i * colW, field.y, colW + 1, floorY - field.y);
+        continue;
+      }
+      side = px % 1 < 0.5 && Math.abs(px - Math.round(px)) < stepLen * 2 ? 1 : 0;
+      const corrected = dist * Math.cos(angle - maze.heading);
+      const wallH = (field.h * 0.72) / corrected;
+      const wallTop = field.y + field.h / 2 - wallH / 2;
+      const shade = clamp(1 - corrected / maxDepth, 0.12, 1);
+      ctx.fillStyle = side
+        ? withAlpha(pal.ink, shade)
+        : withAlpha(pal.accent, shade * 0.85);
+      ctx.fillRect(field.x + i * colW, wallTop, colW + 1, wallH);
+      if (corrected < 3.2) {
+        ctx.fillStyle = withAlpha(pal.ink, 0.55);
+        ctx.fillRect(field.x + i * colW, wallTop, colW + 1, 2);
+        ctx.fillRect(field.x + i * i * colW, wallTop + wallH - 2, colW + 1, 2);
+      }
+    }
+    // compass ring
+    ctx.strokeStyle = withAlpha(pal.ink, 0.4);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, field.y + 26, 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = withAlpha(pal.accent, 0.9);
+    ctx.beginPath();
+    ctx.moveTo(cx, field.y + 26);
+    ctx.lineTo(cx + Math.cos(maze.heading) * 8, field.y + 26 + Math.sin(maze.heading) * 8);
+    ctx.stroke();
+    // checkpoint beacons projected into the view
+    for (const cp of maze.checkpoints) {
+      const rel = Math.atan2(cp.y - maze.py, cp.x - maze.px) - maze.heading;
+      const wrapped = Math.atan2(Math.sin(rel), Math.cos(rel));
+      if (Math.abs(wrapped) > fovHalf * 1.1) continue;
+      const screenX = cx + (wrapped / fovHalf) * (field.w / 2);
+      const d = Math.hypot(cp.x - maze.px, cp.y - maze.py);
+      const s = clamp(90 / Math.max(1, d * 3), 5, 26);
+      ctx.fillStyle = "#c9a25a";
+      ctx.beginPath();
+      ctx.arc(screenX, field.y + field.h / 2, s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = withAlpha(pal.ink, 0.8);
+      ctx.stroke();
+    }
+  }
+
+  // ----- Mould: Aerodrome rendering -------------------------------------------
+
+  function renderFlyer(ctx: CanvasRenderingContext2D) {
+    const horizon = field.y + field.h * 0.3;
+    ctx.fillStyle = withAlpha(pal.background, 1);
+    ctx.fillRect(field.x, field.y, field.w, horizon - field.y);
+    ctx.fillStyle = withAlpha(pal.grid, 0.5);
+    ctx.fillRect(field.x, horizon, field.w, field.y + field.h - horizon);
+    // receding runway stripes
+    ctx.fillStyle = withAlpha(pal.ink, 0.25);
+    for (let i = 0; i < 10; i++) {
+      const t = (flyer.distance * 0.8 + i * 0.1) % 1;
+      const y = horizon + t * t * (field.h * 0.7);
+      const w = 2 + t * 8;
+      ctx.fillRect(W / 2 - w / 2, y, w, 2 + t * 3);
+    }
+    // balloons behind gates
+    for (const b of flyer.balloons) {
+      const bx = field.x + b.x * field.w;
+      const by = field.y + field.h * (0.32 + b.y * 0.6);
+      const r = b.r * field.w;
+      ctx.fillStyle = withAlpha(pal.accent, 0.9);
+      ctx.beginPath();
+      ctx.ellipse(bx, by, r, r * 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = withAlpha(pal.ink, 0.6);
+      ctx.stroke();
+      ctx.strokeStyle = withAlpha(pal.ink, 0.5);
+      ctx.beginPath();
+      ctx.moveTo(bx, by + r * 1.2);
+      ctx.lineTo(bx, by + r * 1.2 + r);
+      ctx.stroke();
+    }
+    // gates (barrage rings)
+    for (const g of flyer.gates) {
+      const gx = field.x + g.x * field.w;
+      const gy = field.y + field.h * (0.32 + g.y * 0.6);
+      const grow = clamp(1.15 - g.x, 0.08, 1);
+      const rw = field.w * 0.09 * grow;
+      const rh = field.h * 0.16 * grow;
+      ctx.strokeStyle = g.hit ? withAlpha(pal.accent, 0.45) : withAlpha(pal.ink, 0.85);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(gx, gy, rw, rh, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      if (!g.hit && g.x < 0.35) {
+        ctx.strokeStyle = withAlpha("#c9a25a", 0.8);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(gx, gy, rw + 4, rh + 6, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    // token drops
+    for (const t of flyer.tokens) {
+      drawToken(ctx, field.x + t.x * field.w, field.y + field.h * (0.32 + t.y * 0.6), t.id);
+    }
+    // the biplane (vintage silhouette)
+    const planeX = field.x + field.w * 0.22;
+    const planeY = field.y + field.h * (0.32 + flyer.plane.y * 0.6);
+    ctx.save();
+    ctx.translate(planeX, planeY);
+    ctx.rotate(flyer.plane.tilt);
+    ctx.fillStyle = pal.ink;
+    ctx.fillRect(-16, -3, 32, 6);
+    ctx.fillRect(-2, -12, 4, 10);
+    ctx.fillRect(-18, -10, 5, 20);
+    ctx.fillRect(12, -8, 3, 16);
+    ctx.fillStyle = pal.accent;
+    ctx.fillRect(-18, -2, 5, 4);
+    ctx.fillRect(-2, -12, 4, 3);
+    ctx.restore();
+    // distance ledger
+    ctx.fillStyle = pal.ink;
+    ctx.font = '600 10px "Courier New", monospace';
+    ctx.textAlign = "right";
+    ctx.fillText(
+      `CHAIN ${Math.floor(flyer.distance * 100)} yd`,
+      field.x + field.w - 10,
+      field.y + 34,
+    );
+    ctx.textAlign = "left";
   }
 
   function renderParticles(ctx: CanvasRenderingContext2D) {
