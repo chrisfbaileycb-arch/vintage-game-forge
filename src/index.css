@@ -44,78 +44,78 @@
   --font-pressing: var(--font-pressing);
 }
 
-/* CHANGE VALUES FOR THEME — vintage sepia / aged-paper archive */
+/* CHANGE VALUES FOR THEME — midnight indigo & foundry amber */
 :root {
   --radius: 0.25rem;
 
-  --background: oklch(0.907 0.036 84.5); /* aged paper */
-  --foreground: oklch(0.26 0.036 60); /* lamp-black ink */
-  --card: oklch(0.932 0.03 85); /* lighter laid paper */
-  --card-foreground: oklch(0.26 0.036 60);
-  --popover: oklch(0.938 0.028 85);
-  --popover-foreground: oklch(0.26 0.036 60);
-  --primary: oklch(0.375 0.088 32); /* oxblood */
-  --primary-foreground: oklch(0.94 0.026 84);
-  --secondary: oklch(0.83 0.052 75); /* kraft wrapper */
-  --secondary-foreground: oklch(0.3 0.05 55);
-  --muted: oklch(0.872 0.038 80);
-  --muted-foreground: oklch(0.46 0.038 62);
-  --accent: oklch(0.72 0.09 75); /* tarnished brass */
-  --accent-foreground: oklch(0.24 0.04 55);
-  --destructive: oklch(0.45 0.13 28);
-  --border: oklch(0.76 0.048 72);
-  --input: oklch(0.8 0.048 74);
-  --ring: oklch(0.375 0.088 32);
-  --chart-1: oklch(0.375 0.088 32);
-  --chart-2: oklch(0.72 0.09 75);
-  --chart-3: oklch(0.55 0.06 110);
-  --chart-4: oklch(0.47 0.06 55);
-  --chart-5: oklch(0.64 0.07 60);
-  --sidebar: oklch(0.9 0.038 82);
-  --sidebar-foreground: oklch(0.26 0.036 60);
-  --sidebar-primary: oklch(0.375 0.088 32);
-  --sidebar-primary-foreground: oklch(0.94 0.026 84);
-  --sidebar-accent: oklch(0.872 0.038 80);
-  --sidebar-accent-foreground: oklch(0.26 0.036 60);
-  --sidebar-border: oklch(0.76 0.048 72);
-  --sidebar-ring: oklch(0.375 0.088 32);
+  --background: oklch(0.185 0.045 285); /* deep indigo night */
+  --foreground: oklch(0.93 0.02 85); /* warm parchment */
+  --card: oklch(0.225 0.05 283); /* indigo panel */
+  --card-foreground: oklch(0.93 0.02 85);
+  --popover: oklch(0.235 0.05 283);
+  --popover-foreground: oklch(0.93 0.02 85);
+  --primary: oklch(0.75 0.16 60); /* foundry amber */
+  --primary-foreground: oklch(0.2 0.05 285);
+  --secondary: oklch(0.3 0.06 288); /* raised indigo */
+  --secondary-foreground: oklch(0.9 0.03 85);
+  --muted: oklch(0.27 0.045 285);
+  --muted-foreground: oklch(0.68 0.03 85);
+  --accent: oklch(0.68 0.17 45); /* ember orange */
+  --accent-foreground: oklch(0.18 0.04 285);
+  --destructive: oklch(0.6 0.19 25);
+  --border: oklch(0.36 0.05 285);
+  --input: oklch(0.32 0.05 286);
+  --ring: oklch(0.75 0.16 60);
+  --chart-1: oklch(0.75 0.16 60);
+  --chart-2: oklch(0.68 0.17 45);
+  --chart-3: oklch(0.7 0.14 160);
+  --chart-4: oklch(0.62 0.15 300);
+  --chart-5: oklch(0.66 0.16 200);
+  --sidebar: oklch(0.21 0.045 284);
+  --sidebar-foreground: oklch(0.93 0.02 85);
+  --sidebar-primary: oklch(0.75 0.16 60);
+  --sidebar-primary-foreground: oklch(0.2 0.05 285);
+  --sidebar-accent: oklch(0.27 0.045 285);
+  --sidebar-accent-foreground: oklch(0.93 0.02 85);
+  --sidebar-border: oklch(0.36 0.05 285);
+  --sidebar-ring: oklch(0.75 0.16 60);
 
   --font-archival: "Playfair Display", ui-serif, Georgia, "Times New Roman", serif;
   --font-pressing: "IBM Plex Mono", "Courier New", ui-monospace, monospace;
 }
 
 .dark {
-  --background: oklch(0.22 0.026 60);
-  --foreground: oklch(0.88 0.03 84);
-  --card: oklch(0.26 0.028 60);
-  --card-foreground: oklch(0.88 0.03 84);
-  --popover: oklch(0.26 0.028 60);
-  --popover-foreground: oklch(0.88 0.03 84);
-  --primary: oklch(0.78 0.075 78);
-  --primary-foreground: oklch(0.22 0.03 55);
-  --secondary: oklch(0.34 0.03 60);
-  --secondary-foreground: oklch(0.88 0.03 84);
-  --muted: oklch(0.31 0.028 60);
-  --muted-foreground: oklch(0.7 0.03 80);
-  --accent: oklch(0.55 0.08 40);
-  --accent-foreground: oklch(0.9 0.03 84);
-  --destructive: oklch(0.6 0.15 25);
-  --border: oklch(0.45 0.03 62);
-  --input: oklch(0.42 0.03 62);
-  --ring: oklch(0.6 0.05 70);
-  --chart-1: oklch(0.78 0.075 78);
-  --chart-2: oklch(0.55 0.08 40);
-  --chart-3: oklch(0.55 0.06 110);
-  --chart-4: oklch(0.65 0.06 55);
-  --chart-5: oklch(0.5 0.06 300);
-  --sidebar: oklch(0.24 0.026 60);
-  --sidebar-foreground: oklch(0.88 0.03 84);
-  --sidebar-primary: oklch(0.78 0.075 78);
-  --sidebar-primary-foreground: oklch(0.22 0.03 55);
-  --sidebar-accent: oklch(0.31 0.028 60);
-  --sidebar-accent-foreground: oklch(0.88 0.03 84);
-  --sidebar-border: oklch(0.45 0.03 62);
-  --sidebar-ring: oklch(0.6 0.05 70);
+  --background: oklch(0.155 0.04 286);
+  --foreground: oklch(0.93 0.02 85);
+  --card: oklch(0.2 0.05 284);
+  --card-foreground: oklch(0.93 0.02 85);
+  --popover: oklch(0.2 0.05 284);
+  --popover-foreground: oklch(0.93 0.02 85);
+  --primary: oklch(0.75 0.16 60);
+  --primary-foreground: oklch(0.18 0.04 286);
+  --secondary: oklch(0.27 0.05 287);
+  --secondary-foreground: oklch(0.9 0.03 85);
+  --muted: oklch(0.24 0.04 286);
+  --muted-foreground: oklch(0.66 0.03 85);
+  --accent: oklch(0.68 0.17 45);
+  --accent-foreground: oklch(0.16 0.04 286);
+  --destructive: oklch(0.62 0.19 25);
+  --border: oklch(0.32 0.05 286);
+  --input: oklch(0.29 0.05 286);
+  --ring: oklch(0.75 0.16 60);
+  --chart-1: oklch(0.75 0.16 60);
+  --chart-2: oklch(0.68 0.17 45);
+  --chart-3: oklch(0.7 0.14 160);
+  --chart-4: oklch(0.62 0.15 300);
+  --chart-5: oklch(0.66 0.16 200);
+  --sidebar: oklch(0.18 0.04 285);
+  --sidebar-foreground: oklch(0.93 0.02 85);
+  --sidebar-primary: oklch(0.75 0.16 60);
+  --sidebar-primary-foreground: oklch(0.18 0.04 286);
+  --sidebar-accent: oklch(0.24 0.04 286);
+  --sidebar-accent-foreground: oklch(0.93 0.02 85);
+  --sidebar-border: oklch(0.32 0.05 286);
+  --sidebar-ring: oklch(0.75 0.16 60);
 }
 
 @layer base {
@@ -137,7 +137,7 @@
 
 /* ---------- Vintage / archival utilities ---------- */
 
-/* Faint paper mottling + light distress, applied to a page or panel */
+/* Deep-space mottling: amber forge-light and indigo depth, applied to pages */
 .paper-texture {
   position: relative;
   background-color: var(--background);
@@ -148,27 +148,27 @@
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.5;
+  opacity: 0.7;
   background-image:
     radial-gradient(
-      ellipse 80% 60% at 20% 10%,
-      oklch(0.84 0.05 78 / 0.55) 0%,
+      ellipse 70% 55% at 15% 0%,
+      oklch(0.45 0.11 55 / 0.28) 0%,
       transparent 60%
     ),
     radial-gradient(
-      ellipse 70% 55% at 85% 90%,
-      oklch(0.82 0.05 70 / 0.4) 0%,
+      ellipse 60% 50% at 90% 100%,
+      oklch(0.4 0.12 300 / 0.14) 0%,
       transparent 55%
     ),
     radial-gradient(
-      circle 260px at 60% 40%,
-      oklch(0.94 0.02 85 / 0.5) 0%,
+      circle 300px at 55% 35%,
+      oklch(0.35 0.08 285 / 0.35) 0%,
       transparent 70%
     ),
     repeating-linear-gradient(
       0deg,
       transparent 0 2px,
-      oklch(0.6 0.05 70 / 0.025) 2px 3px
+      oklch(0.9 0.03 85 / 0.012) 2px 3px
     );
 }
 .paper-texture > * {
@@ -176,20 +176,20 @@
   z-index: 1;
 }
 
-/* Fine double ink rule used between sections */
+/* Fine double rule used between sections */
 .rule-double {
   border-top: 1px solid var(--border);
   box-shadow: 0 3px 0 -2px var(--border);
 }
 
-/* Engraved headline: deep letterpress impression */
+/* Engraved headline: deep letterpress impression, tuned for dark panels */
 .engraved {
   text-shadow:
-    0 1px 0 oklch(0.96 0.02 85 / 0.75),
-    0 -1px 0 oklch(0.4 0.04 55 / 0.35);
+    0 1px 0 oklch(0.05 0.02 285 / 0.8),
+    0 -1px 0 oklch(0.55 0.06 70 / 0.25);
 }
 
-/* Stamped ink label (catalogue numbers, seals) */
+/* Stamped label (catalogue numbers, seals) */
 .stamp {
   font-family: var(--font-pressing);
   letter-spacing: 0.18em;
@@ -200,11 +200,24 @@
   opacity: 0.85;
 }
 
-/* Slight paper-lift shadow for cards on paper */
+/* Slight lift shadow for cards on dark indigo */
 .paper-lift {
   box-shadow:
-    0 1px 2px oklch(0.35 0.05 55 / 0.18),
-    0 6px 18px -8px oklch(0.35 0.05 55 / 0.28);
+    0 1px 2px oklch(0.05 0.02 285 / 0.5),
+    0 6px 18px -8px oklch(0.03 0.02 285 / 0.6);
+}
+
+/* Foundry amber glow for primary buttons & highlighted plates */
+.glow-amber {
+  box-shadow:
+    0 0 0 1px oklch(0.75 0.16 60 / 0.35),
+    0 0 18px oklch(0.75 0.16 60 / 0.4),
+    0 0 42px -6px oklch(0.68 0.17 45 / 0.45);
+}
+.text-glow {
+  text-shadow:
+    0 0 14px oklch(0.75 0.16 60 / 0.55),
+    0 0 34px oklch(0.68 0.17 45 / 0.3);
 }
 
 /* Ensemble vignette for full-page wrappers (hero plates, cabinets) */

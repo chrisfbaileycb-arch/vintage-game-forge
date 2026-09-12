@@ -4,8 +4,8 @@
   "description": "Manufacture your own vintage arcade cartridge: choose a mould, set the dials, press Play.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#e2d3b4",
-  "theme_color": "#4a2c1a",
+  "background_color": "#231a3f",
+  "theme_color": "#231a3f",
   "icons": [
     {
       "src": "/logo.png",

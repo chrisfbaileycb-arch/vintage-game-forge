@@ -5,6 +5,7 @@ import {
   GameCanvas,
 } from "@/components/GameCanvas";
 import { MOULD_OPTIONS, type CartridgeSpec, normalizeSpec } from "@/lib/game/moulds";
+import { PATTERNS, PATTERN_COUNT, patternsByMould } from "@/lib/game/patterns";
 import { useNavigate } from "react-router";
 
 /** Three archival example cartridges, playable right on the landing page. */
@@ -117,7 +118,7 @@ export default function Landing() {
               with the world.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Button size="lg" onClick={() => navigate(isAuthenticated ? "/studio" : "/auth?returnTo=/studio")}>
+              <Button size="lg" className="glow-amber" onClick={() => navigate(isAuthenticated ? "/studio" : "/auth?returnTo=/studio")}>
                 Start pressing — free
               </Button>
               <Button size="lg" variant="outline" onClick={() => navigate("/play/standalone")}>
@@ -228,6 +229,71 @@ export default function Landing() {
 
         <div className="rule-double" />
 
+        {/* The pattern book — 50 named games, playable in place */}
+        <section className="py-14">
+          <p className="small-caps text-sm text-muted-foreground">Chapter III</p>
+          <h2 className="engraved mt-1 text-3xl font-semibold">
+            The pattern book — {PATTERN_COUNT} named games
+          </h2>
+          <p className="mt-2 max-w-2xl text-muted-foreground">
+            Fifty house patterns, ten per mould — each a complete dial setting
+            that plays differently from its neighbours. Open any cabinet below,
+            or re-cast a pattern with your own dials in the Studio.
+          </p>
+          <div className="mt-8 space-y-10">
+            {[...patternsByMould().entries()].map(([mouldId, entries]) => {
+              const mould = MOULD_OPTIONS.find((m) => m.id === mouldId);
+              return (
+                <div key={mouldId}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="text-xl font-semibold">{mould?.name}</h3>
+                    <p className="small-caps text-sm text-primary">{mould?.tagline}</p>
+                  </div>
+                  <ul className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    {entries.map((entry) => (
+                      <li
+                        key={entry.id}
+                        className="flex flex-col rounded-md border bg-card/60 p-4 paper-lift"
+                      >
+                        <p className="font-pressing text-sm font-semibold">{entry.name}</p>
+                        <p className="mt-1 flex-1 text-xs leading-relaxed text-muted-foreground">
+                          {entry.blurb}
+                        </p>
+                        <div className="mt-3 flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() =>
+                              navigate(`/play/standalone?pattern=${entry.id}`)
+                            }
+                          >
+                            Play
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="flex-1"
+                            onClick={() =>
+                              navigate("/studio", {
+                                state: { pattern: entry.spec },
+                              })
+                            }
+                          >
+                            Re-cast
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="rule-double" />
+
         {/* Closing CTA */}
         <section className="py-16 text-center">
           <p className="small-caps text-sm text-muted-foreground">Final plate</p>
@@ -235,8 +301,9 @@ export default function Landing() {
             The press is oiled. The moulds are warm.
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-            Open a studio, set six dials, and walk away with a sealed vintage
-            cartridge that anyone on earth can play.
+            Open a studio, set the dials, and walk away with a sealed vintage
+            cartridge that anyone on earth can play — or start from one of the
+            fifty patterns above.
           </p>
           <div className="mt-8">
             <Button size="lg" onClick={() => navigate(isAuthenticated ? "/studio" : "/auth?returnTo=/studio")}>

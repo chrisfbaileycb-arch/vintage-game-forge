@@ -11,6 +11,7 @@ import {
   normalizeSpec,
   type CartridgeSpec,
 } from "@/lib/game/moulds";
+import { getPattern } from "@/lib/game/patterns";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Copy, Share2, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -41,10 +42,12 @@ export default function Play() {
   const navigate = useNavigate();
 
   const looseCode = searchParams.get("code");
-  const looseSpec = useMemo(
-    () => (looseCode ? decodeSpec(looseCode) : null),
-    [looseCode],
-  );
+  const patternId = searchParams.get("pattern");
+  const looseSpec = useMemo(() => {
+    if (looseCode) return decodeSpec(looseCode);
+    if (patternId) return getPattern(patternId)?.spec ?? null;
+    return null;
+  }, [looseCode, patternId]);
 
   const validId = cartridgeId && isId(cartridgeId) ? cartridgeId : undefined;
   const game = useQuery(

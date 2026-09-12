@@ -33,6 +33,7 @@ import {
 import { useMutation } from "convex/react";
 import { Factory, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { PATTERNS, type PatternEntry } from "@/lib/game/patterns";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -104,7 +105,19 @@ export default function Studio() {
   const press = useMutation(api.games.press);
   const remaster = useMutation(api.games.remaster);
 
-  const remasterJob = (location.state as { remaster?: { spec: CartridgeSpec; mould: MouldKind; title: string; id?: string } } | null)?.remaster;
+  const routeState = (location.state as
+    | {
+        remaster?: {
+          spec: CartridgeSpec;
+          mould: MouldKind;
+          title: string;
+          id?: string;
+        };
+        pattern?: CartridgeSpec;
+      }
+    | null);
+  const remasterJob = routeState?.remaster;
+  const patternJob = routeState?.pattern;
 
   const [live, setLive] = useState<Live>(() => {
     if (remasterJob) {
@@ -124,6 +137,24 @@ export default function Studio() {
         tokens: s.tokens,
         bells: s.bells,
         hue: s.hue ?? 0,
+      };
+    }
+    if (patternJob) {
+      return {
+        title: patternJob.title,
+        mould: patternJob.mould,
+        pace: patternJob.pace,
+        gridDensity: patternJob.gridDensity,
+        brickRows: patternJob.brickRows,
+        handling: patternJob.handling,
+        hazards: patternJob.hazards,
+        palette: patternJob.palette,
+        frame: patternJob.frame,
+        twist: patternJob.twist,
+        finish: patternJob.finish,
+        tokens: patternJob.tokens,
+        bells: patternJob.bells,
+        hue: patternJob.hue ?? 0,
       };
     }
     return defaultLive("breakout");
@@ -227,6 +258,50 @@ export default function Studio() {
                 className="font-pressing"
                 maxLength={40}
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="small-caps text-sm">Pattern book</Label>
+              <Select
+                value=""
+                onValueChange={(id) => {
+                  const entry = PATTERNS.find((p) => p.id === id);
+                  if (!entry) return;
+                  const s = entry.spec;
+                  setLive({
+                    title: s.title,
+                    mould: s.mould,
+                    pace: s.pace,
+                    gridDensity: s.gridDensity,
+                    brickRows: s.brickRows,
+                    handling: s.handling,
+                    hazards: s.hazards,
+                    palette: s.palette,
+                    frame: s.frame,
+                    twist: s.twist,
+                    finish: s.finish,
+                    tokens: s.tokens,
+                    bells: s.bells,
+                    hue: s.hue ?? 0,
+                  });
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Load one of 50 house patterns…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PATTERNS.map((p: PatternEntry) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-muted-foreground"> — {p.blurb}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Fifty house patterns, ten per mould. Loading one fills every dial
+                below — tweak from there and press.
+              </p>
             </div>
 
             <div className="grid gap-2">
