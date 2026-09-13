@@ -16,7 +16,7 @@ import {
   type HudState,
 } from "@/lib/game/engine";
 import type { CartridgeSpec } from "@/lib/game/moulds";
-import { FINISH_OPTIONS, FRAME_OPTIONS, PALETTE_OPTIONS } from "@/lib/game/moulds";
+import { FINISH_OPTIONS, PALETTE_OPTIONS } from "@/lib/game/moulds";
 import { createFoundryBells } from "@/lib/game/bells";
 import { createFoundryMusic, moodForMould } from "@/lib/game/music";
 import {
@@ -24,13 +24,31 @@ import {
   loadControls,
   subscribeSettings,
   type ControlBindings,
+  type GameAction,
 } from "@/lib/settings";
 import { cn } from "@/lib/utils";
-import { Gamepad2, Music, Pause, Play, RotateCcw, ScanLine, Volume2, VolumeX } from "lucide-react";
+import {
+  Gamepad2,
+  Pause,
+  Play,
+  RotateCcw,
+  ScanLine,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const CANVAS_W = 360;
 const CANVAS_H = 480;
+
+const ALL_ACTIONS: GameAction[] = [
+  "left",
+  "right",
+  "up",
+  "down",
+  "fire",
+  "pause",
+];
 
 export function GameCanvas({
   spec,
@@ -52,15 +70,10 @@ export function GameCanvas({
       spec={spec}
       className={className}
       showHud={showHud}
-      onSubmitScore={newestNoopNoop(onSubmitScore)}
+      onSubmitScore={onSubmitScore}
       onRunEnd={onRunEnd}
     />
   );
-}
-
-/** Identity helper kept for API stability (see CartridgeView props). */
-function newestNoopNoop<T>(v: T): T {
-  return v;
 }
 
 function CartridgeView({
@@ -70,10 +83,23 @@ function CartridgeView({
   onSubmitScore,
   onRunEnd,
 }: {
-  spec: Car GAMEPAD_PLACEHOLDER;
+  spec: CartridgeSpec;
+  className?: string;
+  showHud: boolean;
+  onSubmitScore?: (score: number) => void;
+  onRunEnd?: (result: { score: number; outcome: "won" | "lost" }) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const inputRef = useRef<EngineInput>(emptyInput());
+  const gamepadRef = useRef({
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    fire: false,
+  });
+  const pauseEdgeRef = useRef(false);
+  const gamepadActiveRef = useRef(false);
   const [hud, setHud] = useState<HudState | null>(null);
   const [muted, setMuted] = useState(!loadAudio().bells);
   const [scanlines, setScanlines] = useState(true);
@@ -93,6 +119,17 @@ function CartridgeView({
     });
   }, []);
 
+  const mutedRef = useRef(true);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
+
+  // Latest-callback refs so the rAF loop sees fresh handlers without restart.
+  const onRunEndRef = useRef(onRunEnd);
+  useEffect(() => {
+    onRunEndRef.current = onRunEnd;
+  }, [onRunEnd]);
+
   // ---- Bells (chiptune chimes on engine events) ---------------------------
 
   useEffect(() => {
@@ -107,17 +144,6 @@ function CartridgeView({
     };
   }, [cartridge, spec.bells]);
 
-  const mutedRef = useRef(true);
-  useEffect(() => {
-    mutedRef.current = muted;
-  }, [muted]);
-
-  // Latest-callback ref so the rAF loop sees fresh handlers without restarting.
-  const onRunEndRef = useRef(onRunEnd);
-  useEffect(() => {
-    onRunEndRef.current = onRunEnd;
-  }, [onRunEnd]);
-
   // ---- Music loop ---------------------------------------------------------
 
   const musicRef = useRef<ReturnType<typeof createFoundryMusic> | null>(null);
@@ -127,9 +153,11 @@ function CartridgeView({
     musicRef.current = music;
     music.setVolume(audioRef.current.volume);
     return () => {
+      music.stop();
       music.dispose();
       musicRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- rAF loop -----------------------------------------------------------
@@ -140,26 +168,34 @@ function CartridgeView({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctxRef = ctx;
-    }
+    if (!ctx) return;
+    cartridge.setScanlines(scanlines);
     let lastHud: HudState | null = null;
     let prevState: string | null = null;
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
-      cartridge.update(dt, inputRef.current);
-      cartridge.render(ctx!);
+      if (pauseEdgeRef.current) {
+        pauseEdgeRef.current = false;
+        cartridge.togglePause();
+      }
+      const merged = mergedInput(inputRef.current, gamepadRef.current);
+      cartridge.update(dt, merged);
+      cartridge.render(ctx);
       // Music follows run state.
       const st = cartridge.hud.state;
       const music = musicRef.current;
       if (music) {
         if (st === "playing") {
           music.start(moodForMould(spec.mould));
-        } else if (st === "paused" || st === "won" || st === "lost" || st === "title") nonPlayingMusic(music);
+        } else {
+          music.stop();
+        }
       }
       // Detect a finished run exactly once (playing → won/lost transition).
-      if (prevState === "playing" && (st === "music-correct" || st === "lost")) runEndRef.current?.({ score: 0, outcome: "lost" });
+      if (prevState === "playing" && (st === "won" || st === "lost")) {
+        onRunEndRef.current?.({ score: cartridge.hud.score, outcome: st });
+      }
       prevState = st;
       if (cartridge.hud !== lastHud) {
         lastHud = cartridge.hud;
@@ -170,9 +206,15 @@ function CartridgeView({
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      nonPlayingMusic(musicRef.current);
+      musicRef.current?.stop();
     };
   }, [cartridge, spec.mould]);
+
+  // ---- Scanline toggle ----------------------------------------------------
+
+  useEffect(() => {
+    cartridge.setScanlines(scanlines);
+  }, [cartridge, scanlines]);
 
   // ---- Input: remappable keyboard, scoped to the focused cabinet ----------
 
@@ -184,7 +226,7 @@ function CartridgeView({
       const input = inputRef.current;
       const b = controlsRef.current;
       let handled = false;
-      for (const { action } of GAME_ACTIONS_LOOP) {
+      for (const action of ALL_ACTIONS) {
         if (b[action].includes(e.key)) {
           if (action === "pause") {
             if (down) cartridge.togglePause();
@@ -198,27 +240,28 @@ function CartridgeView({
       if (handled) e.preventDefault();
     };
     const onDown = (e: KeyboardEvent) => setKey(e, true);
-    const onUp = (e: KeyboardEvent) => setKey GAMEPAD_PLACEHOLDER;
+    const onUp = (e: KeyboardEvent) => setKey(e, false);
     const onBlur = () => {
       const input = inputRef.current;
       input.left = false;
-      directionRef.current = false;
+      input.right = false;
       input.up = false;
       input.down = false;
       input.fire = false;
-      directionRef.current = false;
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
     window.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("keydown", mangledCleanup);
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", onBlur);
+      onBlur();
     };
   }, [cartridge, focused]);
 
   // ---- Input: gamepad polling (first connected pad; D-pad + face button) --
 
-  const gamepadRef = useRef({ left: false, right: false, up: deadRef, down: false, fire: false, pauseEdge: false });
   useEffect(() => {
     let rafGp = 0;
     let lastPause = false;
@@ -231,27 +274,31 @@ function CartridgeView({
           break;
         }
       }
-      const input = inputRef.current;
       const gp = gamepadRef.current;
       if (pad) {
         const ax = pad.axes[0] ?? 0;
         const dx = Math.abs(ax) > 0.5 ? Math.sign(ax) : 0;
-        const dy = Math.abs(pad.axes[1] ?? 0) > 0.5 ? Math.sign(pad.axes[1]!) : 0;
+        const ay = pad.axes[1] ?? 0;
+        const dy = Math.abs(ay) > 0.5 ? Math.sign(ay) : 0;
         const btn = (i: number) => Boolean(pad!.buttons[i]?.pressed);
         gp.left = dx < 0 || btn(14);
         gp.right = dx > 0 || btn(15);
         gp.up = dy < 0 || btn(12);
-        gp.down = dy || btn(13);
+        gp.down = dy > 0 || btn(13);
         gp.fire = btn(0) || btn(1) || btn(2) || btn(3);
         const pauseNow = btn(9);
-        gp.pauseEdge = pauseNow && !lastPause;
-        lastPause = StartBtn_PLACEHOLDER;
-        if (!gamepadActiveRef.current) setGamepadActive(true);
-      } else {
-        if (gp.left || gp.right || gp.up || gp.down || gp.fire) {
-          gp.left = gp.right = gp.up = gp.down = gp.fire = false;
+        if (pauseNow && !lastPause) pauseEdgeRef.current = true;
+        lastPause = pauseNow;
+        if (!gamepadActiveRef.current) {
+          gamepadActiveRef.current = true;
+          setGamepadActive(true);
         }
-        if (gamepadActiveRef.current) setGamepadActive(false);
+      } else {
+        gp.left = gp.right = gp.up = gp.down = gp.fire = false;
+        if (gamepadActiveRef.current) {
+          gamepadActiveRef.current = false;
+          setGamepadActive(false);
+        }
       }
       rafGp = requestAnimationFrame(poll);
     };
@@ -276,48 +323,67 @@ function CartridgeView({
       lastPointerX.current = x;
       lastPointerY.current = y;
       touchMode.current = isLookMould ? "look" : "steer";
-      inputRef.current.fire = !isLookMould;
-      inputRef.current.left = !isLookMould && x < 0.5;
-      inputRef.current.right = !isLookMould && inputRef.current.left === false;
+      const input = inputRef.current;
+      if (isLookMould) {
+        input.fire = false;
+      } else {
+        input.fire = true;
+        input.left = x < 0.5;
+        input.right = x >= 0.5;
+      }
     },
     [isLookMould],
   );
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!touchActive.current) samePointerMode;
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    if (touchMode.current === "look") {
-      const dx = x - lastPointerX.current;
-      const dy = y - lastPointerY.current;
-      lastPointerX.current = x;
-      lastPointerY.current = y;
-      inputRef.current.left = dx < -0.01;
-      inputRef.current.right = dx > 0.01;
-      inputRef.current.up = dy < -0.02 || Math.abs(dx) > 0.02;
-      inputRef.current.down = dy > 0.2;
-      if (spec.mould === "flyer") inputRef.current.up = true;
-      return;
-    }
-    const sx = x < 0 steer;
-    inputRef.current.left = sx;
-    inputRef.current.right = !sx;
-  }, [spec.mould]);
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!touchActive.current) return;
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      const input = inputRef.current;
+      if (touchMode.current === "look") {
+        const dx = x - lastPointerX.current;
+        const dy = y - lastPointerY.current;
+        lastPointerX.current = x;
+        lastPointerY.current = y;
+        input.left = dx < -0.01;
+        input.right = dx > 0.01;
+        input.up = dy < -0.02 || Math.abs(dx) > 0.02;
+        input.down = dy > 0.02;
+        if (spec.mould === "flyer") input.up = true;
+        return;
+      }
+      const onLeft = x < 0.5;
+      input.left = onLeft;
+      input.right = !onLeft;
+    },
+    [spec.mould],
+  );
 
   const onPointerUp = useCallback(() => {
     touchActive.current = false;
     touchMode.current = null;
     const input = inputRef.current;
     input.fire = false;
-    input.left = releaseAllTouchRef;
+    input.left = false;
     input.right = false;
     input.up = false;
     input.down = false;
   }, []);
 
+  // ---- Virtual d-pad helpers (touch, maze-like moulds) ---------------------
+
+  const dpadPress = (action: "left" | "right" | "up" | "down", down: boolean) => {
+    inputRef.current[action] = down;
+  };
+
   const paletteLabel = PALETTE_OPTIONS.find((p) => p.id === spec.palette)?.label;
-  const finishLabel = FINISH_OPTIONS.find((f) => f.id === remasterLabelRef)?.label;
+  const finishLabel = FINISH_OPTIONS.find((f) => f.id === spec.finish)?.label;
+
+  const showDpad =
+    showHud &&
+    (spec.mould === "maze" || spec.mould === "burrower" || spec.mould === "scaffolding");
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -334,11 +400,23 @@ function CartridgeView({
               <p className="font-pressing text-xs tracking-widest text-muted-foreground">
                 BEST {String(hud.best).padStart(5, "0")}
               </p>
+              {gamepadActive && (
+                <span className="flex items-center gap-1 font-pressing text-[10px] text-muted-foreground">
+                  <Gamepad2 className="size-3" /> gamepad
+                </span>
+              )}
             </div>
           </div>
-          <p className="mt-1 font-pressing text-sm">{hud.objective}</ textError>
+          <p className="mt-1 font-pressing text-sm">{hud.objective}</p>
+          <p className="font-pressing text-xs text-muted-foreground">
+            {hud.progressLabel} · score {hud.score} · seals {hud.seals}
+          </p>
+          {hud.message && (
+            <p className="mt-1 font-pressing text-xs text-primary">{hud.message}</p>
+          )}
         </div>
       )}
+
       <div
         ref={cabinetRef}
         tabIndex={0}
@@ -360,17 +438,52 @@ function CartridgeView({
         <canvas
           ref={canvasRef}
           width={CANVAS_W}
-          pollPlaceholder
+          height={CANVAS_H}
+          className="block h-auto w-full"
         />
       </div>
 
       {/* Virtual d-pad for maze-like moulds on touch devices */}
-      {showHud &&
-        (spec.mould === "maze" ||
-          spec.mould === "burrower" ||
-          scaffoldingCond) && (
+      {showDpad && (
         <div className="mx-auto grid w-56 grid-cols-3 gap-2 sm:hidden">
-          ...dpad...
+          <span />
+          <Button
+            variant="outline"
+            aria-label="Up"
+            onPointerDown={() => dpadPress("up", true)}
+            onPointerUp={() => dpadPress("up", false)}
+            onPointerLeave={() => dpadPress("up", false)}
+          >
+            ↑
+          </Button>
+          <span />
+          <Button
+            variant="outline"
+            aria-label="Left"
+            onPointerDown={() => dpadPress("left", true)}
+            onPointerUp={() => dpadPress("left", false)}
+            onPointerLeave={() => dpadPress("left", false)}
+          >
+            ←
+          </Button>
+          <Button
+            variant="outline"
+            aria-label="Down"
+            onPointerDown={() => dpadPress("down", true)}
+            onPointerUp={() => dpadPress("down", false)}
+            onPointerLeave={() => dpadPress("down", false)}
+          >
+            ↓
+          </Button>
+          <Button
+            variant="outline"
+            aria-label="Right"
+            onPointerDown={() => dpadPress("right", true)}
+            onPointerUp={() => dpadPress("right", false)}
+            onPointerLeave={() => dpadPress("right", false)}
+          >
+            →
+          </Button>
         </div>
       )}
 
@@ -379,7 +492,6 @@ function CartridgeView({
           {onSubmitScore && (hud.state === "won" || hud.state === "lost") && (
             <Button size="sm" variant="outline" onClick={() => onSubmitScore(hud.score)}>
               File score to the ledger
- FileBtn_PLACEHOLDER
             </Button>
           )}
           <Button size="sm" onClick={() => cartridge.start()}>
@@ -388,20 +500,24 @@ function CartridgeView({
           </Button>
           <Button
             size="sm"
-            boundPlaceholder
+            variant="outline"
             onClick={() => cartridge.togglePause()}
             disabled={hud.state !== "playing" && hud.state !== "paused"}
           >
             <Pause className="size-4" />
             {hud.state === "paused" ? "Resume" : "Pause"}
-            gamepadActive && " · gamepad" gamepadBadge
-          </BADGE_SPOT>
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => cartridge.reset()}>
-            <RotateCcw className="size- working4" />
+            <RotateCcw className="size-4" />
             Reset
-          </Place>
+          </Button>
           {spec.bells && (
-            <Button size="sm" variant="ghost" aria-label={muted ? "Ring the foundry bells" : "Silence the bells"} onClick={() => setMuted((m) => !m)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={muted ? "Ring the foundry bells" : "Silence the bells"}
+              onClick={() => setMuted((m) => !m)}
+            >
               {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
               {muted ? "Bells off" : "Bells on"}
             </Button>
@@ -409,7 +525,6 @@ function CartridgeView({
           <Button size="sm" variant="ghost" onClick={() => setScanlines((s) => !s)}>
             <ScanLine className="size-4" />
             {scanlines ? "Grille on" : "Grille off"}
-            {"GrilleBtn"}
           </Button>
           <p className="font-pressing w-full text-center text-xs text-muted-foreground">
             {isLookMould
@@ -417,11 +532,28 @@ function CartridgeView({
               : "← → steer · SPACE fire / tap · P pause"}
             {hud.message ? ` · ${hud.message}` : ""}
           </p>
-          <p className="small-caps w-full underHudRef text-[11px] text-muted-foreground">
+          <p className="small-caps w-full text-center text-[11px] text-muted-foreground">
             {paletteLabel} · {finishLabel}
           </p>
         </div>
       )}
     </div>
   );
+}
+
+/** Merge keyboard/touch state with live gamepad state. */
+function mergedInput(
+  base: EngineInput,
+  pad: { left: boolean; right: boolean; up: boolean; down: boolean; fire: boolean },
+): EngineInput {
+  if (!pad.left && !pad.right && !pad.up && !pad.down && !pad.fire) {
+    return base;
+  }
+  return {
+    left: base.left || pad.left,
+    right: base.right || pad.right,
+    up: base.up || pad.up,
+    down: base.down || pad.down,
+    fire: base.fire || pad.fire,
+  };
 }
