@@ -12,7 +12,9 @@ export type MouldKind =
   | "maze"
   | "flyer"
   | "burrower"
-  | "scaffolding";
+  | "scaffolding"
+  | "stacker"
+  | "crossing";
 
 export interface CartridgeSpec {
   /** Which preset engine executes this spec. */
@@ -160,6 +162,8 @@ export const DIAL_RANGES = {
       flyer: 5,
       burrower: 5,
       scaffolding: 5,
+      stacker: 3,
+      crossing: 4,
     } as Record<MouldKind, number>,
   },
   hazards: { min: 0, max: 9 },
@@ -223,6 +227,20 @@ export const MOULD_OPTIONS: {
     blurb: "Ascend zigzagging girder tiers while gravity rolls hazardous drums down the inclines. Climb ladders, time your jumps, and grab the mallet to smash barrels for double marks.",
     dials: ["Barrel rate", "Climb handling", "Tokens", "Twist"],
   },
+  {
+    id: "stacker",
+    name: "Mould №8 — Menagerie",
+    tagline: "Boots the Badger's crate stacks",
+    blurb: "Boots the Badger catches swinging fruit crates on a loading dock while Sprocket the Squirrel scurries up to calm the cranky bees. Stack the dock high without letting a crate—or a bee—land on your head.",
+    dials: ["Swing pace", "Hook handling", "Tokens", "Twist"],
+  },
+  {
+    id: "crossing",
+    name: "Mould №9 — Crossing Guard",
+    tagline: "Hop the thoroughfare with Pip",
+    blurb: "March Pip the Pigeon across a ten-lane thoroughfare of steam lorries and log floats, hunting for brass buttons. Ten lanes, one brave bird, and traffic that never politely stops.",
+    dials: ["Traffic density", "Hop handling", "Tokens", "Twist"],
+  },
 ];
 
 export const MOULD_BASE_PACE: Record<MouldKind, number> = {
@@ -233,6 +251,8 @@ export const MOULD_BASE_PACE: Record<MouldKind, number> = {
   flyer: 3,
   burrower: 3,
   scaffolding: 3,
+  stacker: 2,
+  crossing: 3,
 };
 
 /** Parse an unknown value into a valid palette, else default. */
@@ -279,7 +299,9 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
     mouldRaw === "maze" ||
     mouldRaw === "flyer" ||
     mouldRaw === "burrower" ||
-    mouldRaw === "scaffolding"
+    mouldRaw === "scaffolding" ||
+    mouldRaw === "stacker" ||
+    mouldRaw === "crossing"
       ? mouldRaw
       : "breakout";
 
@@ -369,6 +391,8 @@ export function describeSpec(spec: CartridgeSpec): string[] {
   if (spec.mould === "flyer") parts.push(`wind pace ${spec.pace}/5`);
   if (spec.mould === "burrower") parts.push(`pursuers ${1 + Math.floor(spec.gridDensity / 2)}`);
   if (spec.mould === "scaffolding") parts.push(`barrel ${spec.pace}/5`);
+  if (spec.mould === "stacker") parts.push(`crates ${3 + spec.gridDensity}`);
+  if (spec.mould === "crossing") parts.push(`lanes ${6 + spec.gridDensity}`);
   if (spec.hazards > 0) parts.push(`${spec.hazards} fixtures`);
   if (spec.tokens > 0) parts.push(`${spec.tokens} tokens`);
   if (spec.hue > 0) parts.push(`toned ${spec.hue}°`);

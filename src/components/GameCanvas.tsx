@@ -266,7 +266,12 @@ function CartridgeView({
       </div>
 
       {/* Virtual d-pad for digging / climbing moulds on touch devices */}
-      {showHud && (spec.mould === "maze" || spec.mould === "burrower" || spec.mould === "scaffolding") && (
+      {showHud &&
+        (spec.mould === "maze" ||
+          spec.mould === "burrower" ||
+          spec.mould === "scaffolding" ||
+          spec.mould === "stacker" ||
+          spec.mould === "crossing") && (
         <div className="mx-auto grid w-40 grid-cols-3 gap-1 sm:hidden">
           <span />
           <Button

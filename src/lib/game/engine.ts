@@ -734,6 +734,10 @@ export function createCartridge(
       return `Excavate ${burrow.target} buried marks`;
     if (spec.mould === "scaffolding")
       return "Climb every tier to reach the apex";
+    if (spec.mould === "stacker")
+      return `Stack ${menagerie.target} crates on the dock`;
+    if (spec.mould === "crossing")
+      return `Collect ${crossing.target} brass buttons`;
     return "Rout the descending ranks";
   }
 
@@ -772,6 +776,18 @@ export function createCartridge(
       return {
         label: `tier ${scaffold.tier + 1}/${SCAFF_TIERS}`,
         value: (scaffold.tier + 1) / SCAFF_TIERS,
+      };
+    }
+    if (spec.mould === "stacker") {
+      return {
+        label: `${menagerie.stacked}/${menagerie.target} stacked`,
+        value: menagerie.stacked / menagerie.target,
+      };
+    }
+    if (spec.mould === "crossing") {
+      return {
+        label: `${crossing.collected}/${crossing.target} buttons`,
+        value: crossing.collected / crossing.target,
       };
     }
     const total = invaders.alive.length || 1;
@@ -830,6 +846,19 @@ export function createCartridge(
         (b) => Math.abs(b.x - scaffold.px) > 0.1,
       );
     }
+    if (spec.mould === "stacker") {
+      menagerie.crates = menagerie.crates.slice(
+        0,
+        Math.max(0, menagerie.crates.length - 3),
+      );
+      menagerie.carrying = true;
+      menagerie.hookY = 0;
+    }
+    if (spec.mould === "crossing") {
+      crossing.lane = 0;
+      crossing.laneT = 0;
+      crossing.x = 0.5;
+    }
     if (spec.mould === "maze") {
       maze.elapsed = Math.max(0, maze.elapsed - maze.fuse * 0.25);
       maze.px = 0.5 + 0.001;
@@ -857,6 +886,522 @@ export function createCartridge(
     }
   }
 
+  // ----- Mould: Menagerie (Boots the Badger's dock stacks) --------------------
+  // Swinging crane hook, wobbling crate stacks, and one cranky bee.
+
+  const CRATE_ROWS = 5; // stack this many rows high on the dock
+  const MENAGERIE_CRATE_COLORS = ["#e2a33c", "#c96f2f", "#8fae3f", "#4fb0c6"];
+  const menagerie = {
+    hookX: 0.5,
+    hookDir: 1,
+    hookY: 0,
+    carrying: true,
+    wasFire: false,
+    crates: [] as { x: number; h: number }[],
+    nextCrate: 0,
+    beeX: 0.2,
+    beeY: 0.6,
+    beeVx: 0.11,
+    beeVy: 0.07,
+    beeStun: 0,
+    target: 10,
+    stacked: 0,
+    swing: 0,
+  };
+
+  function buildMenagerie() {
+    menagerie.hookX = 0.5;
+    menagerie.hookDir = 1;
+    menagerie.hookY = 0;
+    menagerie.carrying = true;
+    menagerie.wasFire = false;
+    menagerie.crates = [];
+    menagerie.nextCrate = 0;
+    menagerie.beeX = 0.2;
+    menagerie.beeY = 0.6;
+    menagerie.beeStun = 0;
+    menagerie.stacked = 0;
+    menagerie.swing = 0;
+  }
+
+  function menagerieStackHeight(x: number): number {
+    let h = 0;
+    for (const c of menagerie.crates) {
+      if (Math.abs(c.x - x) < 0.06) h += 1;
+    }
+    return h;
+  }
+
+  function updateMenagerie(dt: number, input: EngineInput) {
+    const swingSpeed = (0.9 + spec.pace * 0.28) * paceMul;
+    menagerie.swing += dt * swingSpeed * 2.2;
+
+    // The crane hook swings; left/right nudges its patrol centre.
+    const nudge = (input.left ? -1 : 0) + (input.right ? 1 : 0);
+    const range = 0.34 + spec.handling * 0.015;
+    const center = 0.5 + nudge * 0.06;
+    menagerie.hookX = center + Math.sin(menagerie.swing) * range;
+    menagerie.hookDir = Math.cos(menagerie.swing) >= 0 ? 1 : -1;
+
+    if (menagerie.carrying) {
+      if (input.fire && !menagerie.wasFire) {
+        menagerie.carrying = false;
+        menagerie.hookY = 0;
+        triggerSquash(squash, 0, 1);
+      }
+    } else {
+      // crate falls toward the dock
+      menagerie.hookY += dt * 2.6;
+      const dockNorm = 0.86;
+      if (menagerie.hookY >= dockNorm) {
+        const x = menagerie.hookX;
+        const stackH = menagerieStackHeight(x);
+        if (stackH >= CRATE_ROWS + 2) {
+          loseRun("The stack swamped the dock");
+          menagerie.carrying = true;
+          menagerie.hookY = 0;
+          return;
+        }
+        menagerie.crates.push({ x, h: stackH });
+        menagerie.stacked += 1;
+        score += windfallScore(50);
+        emit("checkpoint");
+        burst(
+          field.x + x * field.w,
+          field.y + field.h * dockNorm,
+          6,
+          [MENAGERIE_CRATE_COLORS[menagerie.nextCrate % MENAGERIE_CRATE_COLORS.length], "#fff8e6"],
+          90,
+          150,
+        );
+        menagerie.nextCrate += 1;
+        // Off-centre drops wobble the stack; brittle moulding topples easier.
+        let wobble = Math.abs(x - 0.5);
+        if (spec.twist === "brittle") wobble += 0.08;
+        if (stackH > 0 && wobble > 0.3 && rng() < 0.35) {
+          let idx = -1;
+          for (let i = 0; i < menagerie.crates.length; i++) {
+            const c = menagerie.crates[i];
+            if (Math.abs(c.x - x) < 0.06 && c.h === stackH) idx = i;
+          }
+          if (idx >= 0) {
+            menagerie.crates.splice(idx, 1);
+            menagerie.stacked -= 1;
+            emit("barrel");
+            shake(2);
+            spawnDebris(
+              debrisField,
+              field.x + x * field.w,
+              field.y + field.h * dockNorm,
+              [MENAGERIE_CRATE_COLORS[0]],
+              rng,
+              6,
+              110,
+            );
+          }
+        }
+        menagerie.carrying = true;
+        menagerie.hookY = 0;
+        if (menagerie.stacked >= menagerie.target) {
+          winRun();
+          return;
+        }
+      }
+    }
+    menagerie.wasFire = input.fire;
+
+    // Sprocket the squirrel patrols the rope and calms the cranky bee.
+    const sprocketX = 0.5 + Math.sin(menagerie.swing * 0.37) * 0.42;
+    if (menagerie.beeStun > 0) {
+      menagerie.beeStun -= dt;
+    } else {
+      // More hazards dialled = crankier, faster bees.
+      const beeAggro = 1 + spec.hazards * 0.12;
+      menagerie.beeX += menagerie.beeVx * dt * (0.8 + spec.pace * 0.2) * beeAggro;
+      menagerie.beeY += menagerie.beeVy * dt * 2 * beeAggro;
+      if (menagerie.beeX < 0.05 || menagerie.beeX > 0.95) menagerie.beeVx *= -1;
+      if (menagerie.beeY < 0.55 || menagerie.beeY > 0.95) menagerie.beeVy *= -1;
+      if (Math.abs(sprocketX - menagerie.beeX) < 0.05) {
+        menagerie.beeStun = 4;
+        emit("token");
+      }
+      if (
+        menagerie.beeY > 0.8 &&
+        Math.abs(menagerie.beeX - menagerie.hookX) < 0.05 &&
+        menagerie.hookY > 0.5
+      ) {
+        loseRun("Stung on the dock");
+        menagerie.carrying = true;
+        menagerie.hookY = 0;
+        return;
+      }
+    }
+
+    updateTokenDrops(dt, (t) => {
+      if (
+        t.y > field.y + field.h * 0.3 &&
+        Math.abs(t.x - (field.x + menagerie.hookX * field.w)) < 16
+      ) {
+        score += windfallScore(40);
+        emit("token");
+        t.ttl = 0;
+      }
+    });
+  }
+
+  function renderMenagerie(ctx: CanvasRenderingContext2D) {
+    const sx = field.w / W;
+    const sy = field.h / H;
+    const dockY = field.y + field.h * 0.86;
+
+    // dock planks (bevelled)
+    drawBevelPlate(ctx, field.x, dockY, field.w, field.h * 0.14, "#4a3220", "#7d5a38", 4);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    for (let px = field.x + 12; px < field.x + field.w - 8; px += 26) {
+      ctx.fillRect(px, dockY + 4, 2, field.h * 0.14 - 8);
+    }
+
+    // stacked crates
+    for (const c of menagerie.crates) {
+      const cx2 = field.x + c.x * field.w;
+      const ch = 15;
+      const cy2 = dockY - c.h * ch;
+      glowOn(ctx, "#e2a33c", 4);
+      drawBevelPlate(
+        ctx,
+        cx2 - 14 * sx,
+        cy2 - ch,
+        28 * sx,
+        ch - 2,
+        MENAGERIE_CRATE_COLORS[c.h % MENAGERIE_CRATE_COLORS.length],
+        "#ffe9c9",
+        2,
+      );
+      glowOff(ctx);
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(cx2 - 12 * sx, cy2 - ch / 2 - 1, 24 * sx, 2);
+    }
+
+    // rope + hook from the top rail
+    const hx = field.x + menagerie.hookX * field.w;
+    ctx.strokeStyle = "#c9a25a";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(hx, field.y + 6);
+    ctx.lineTo(hx, field.y + 10 + menagerie.hookY * field.h);
+    ctx.stroke();
+    ctx.strokeRect(hx - 5, field.y + 8 + menagerie.hookY * field.h, 10, 6);
+
+    if (menagerie.carrying) {
+      const cy2 = field.y + 16 + menagerie.hookY * field.h;
+      const color = MENAGERIE_CRATE_COLORS[menagerie.nextCrate % MENAGERIE_CRATE_COLORS.length];
+      glowOn(ctx, color, 6);
+      drawBevelPlate(ctx, hx - 14 * sx, cy2, 28 * sx, 13, color, "#fff2d9", 2);
+      glowOff(ctx);
+    }
+
+    // Sprocket the squirrel on the rope
+    const spx = field.x + (0.5 + Math.sin(menagerie.swing * 0.37) * 0.42) * field.w;
+    glowOn(ctx, "#c96f2f", 5);
+    ctx.fillStyle = "#c96f2f";
+    ctx.beginPath();
+    ctx.arc(spx, field.y + 14, 5 * sy, 0, Math.PI * 2);
+    ctx.fill();
+    glowOff(ctx);
+    ctx.fillStyle = "#8a5a2b";
+    ctx.beginPath();
+    ctx.arc(spx - 6 * sx, field.y + 17, 3 * sy, 0, Math.PI * 1.2);
+    ctx.fill();
+    ctx.fillStyle = "#2a1c10";
+    ctx.fillRect(spx + 2, field.y + 12, 2, 2);
+
+    // Boots the badger on the dock
+    const bx = hx;
+    glowOn(ctx, "#5ad7ff", 5);
+    ctx.fillStyle = "#5a6470";
+    ctx.fillRect(bx - 9 * sx, dockY - 18 * sy, 18 * sx, 18 * sy);
+    glowOff(ctx);
+    ctx.fillStyle = "#f2ede2";
+    ctx.fillRect(bx - 3 * sx, dockY - 18 * sy, 6 * sx, 10 * sy);
+    ctx.fillStyle = "#2a2f36";
+    ctx.fillRect(bx - 9 * sx, dockY - 15 * sy, 6 * sx, 5 * sy);
+    ctx.fillRect(bx + 3 * sx, dockY - 15 * sy, 6 * sx, 5 * sy);
+
+    // cranky bee
+    const bex = field.x + menagerie.beeX * field.w;
+    const bey = field.y + menagerie.beeY * field.h;
+    glowOn(ctx, "#ffd23f", 6);
+    ctx.fillStyle = "#ffd23f";
+    ctx.beginPath();
+    ctx.ellipse(bex, bey, 6 * sx, 4 * sy, 0, 0, Math.PI * 2);
+    ctx.fill();
+    glowOff(ctx);
+    ctx.fillStyle = "#2a2015";
+    ctx.fillRect(bex - 4, bey - 3, 2, 6);
+    ctx.fillRect(bex + 2, bey - 3, 2, 6);
+    if (menagerie.beeStun > 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.beginPath();
+      ctx.arc(bex, bey, 9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    drawScanlines(ctx, field.x, field.y, field.w, field.h);
+    ctx.fillStyle = pal.ink;
+    ctx.font = "10px monospace";
+    ctx.fillText(`DOCK ${menagerie.stacked}/${menagerie.target}`, field.x + 8, field.y + 14);
+  }
+
+  // ----- Mould: Crossing Guard (Pip the Pigeon's thoroughfare) ----------------
+
+  const CROSS_LANES = 10;
+  const CROSS_LANE_H = 34;
+  const CROSS_COLORS = ["#c8472f", "#3f7fae", "#c9a25a", "#5e5a52", "#7d4a6f"];
+  const crossing = {
+    lane: 0,
+    laneT: 0,
+    hopFrom: 0,
+    hopDir: 1,
+    x: 0.5,
+    wasFire: false,
+    vehicles: [] as { lane: number; x: number; speed: number; kind: number; len: number }[],
+    buttons: [] as { lane: number; x: number; taken: boolean }[],
+    spawnTimers: [] as number[],
+    collected: 0,
+    target: 6,
+  };
+
+  function buildCrossing() {
+    crossing.lane = 0;
+    crossing.laneT = 0;
+    crossing.hopFrom = 0;
+    crossing.hopDir = 1;
+    crossing.x = 0.5;
+    crossing.wasFire = false;
+    crossing.vehicles = [];
+    crossing.spawnTimers = Array.from({ length: CROSS_LANES }, () => 0.6 + rng() * 1.4);
+    crossing.buttons = [];
+    crossing.collected = 0;
+    crossingSpawnButton();
+    crossingSpawnButton();
+    crossingSpawnButton();
+  }
+
+  function crossingSpawnButton() {
+    const lane = 1 + Math.floor(rng() * (CROSS_LANES - 1));
+    const x = 0.15 + rng() * 0.7;
+    crossing.buttons.push({ lane, x, taken: false });
+  }
+
+  function crossingLaneY(lane: number): number {
+    return field.y + field.h - 30 - lane * CROSS_LANE_H;
+  }
+
+  function updateCrossing(dt: number, input: EngineInput) {
+    const hopSpeed = 5.5 + spec.handling * 0.4;
+    const hitNow = () =>
+      crossing.vehicles.some(
+        (v) =>
+          v.lane === crossing.lane &&
+          Math.abs(v.x - crossing.x) < (v.len + 0.05) / 2,
+      );
+
+    if (crossing.laneT > 0) {
+      crossing.laneT -= dt * hopSpeed;
+      if (crossing.laneT <= 0) {
+        crossing.laneT = 0;
+        crossing.lane = crossing.hopFrom + crossing.hopDir;
+        if (hitNow()) {
+          loseRun("Pip was clipped in traffic");
+          return;
+        }
+        const btn = crossing.buttons.find(
+          (b) =>
+            !b.taken &&
+            b.lane === crossing.lane &&
+            Math.abs(b.x - crossing.x) < 0.09,
+        );
+        if (btn) {
+          btn.taken = true;
+          crossing.collected += 1;
+          score += windfallScore(120);
+          emit("checkpoint");
+          burst(
+            field.x + crossing.x * field.w,
+            crossingLaneY(crossing.lane),
+            10,
+            ["#c9a25a", "#fff8e6"],
+            90,
+            150,
+          );
+          if (crossing.collected >= crossing.target) {
+            winRun();
+            return;
+          }
+          if (crossing.buttons.filter((b) => !b.taken).length < 3)
+            crossingSpawnButton();
+        }
+        if (crossing.lane === CROSS_LANES) {
+          // far pavement reached: pay the crossing bonus and head back
+          score += windfallScore(60);
+          emit("gate");
+          crossing.hopFrom = crossing.lane;
+          crossing.hopDir = -1;
+          crossing.laneT = 1;
+          return;
+        }
+      }
+    } else {
+      if (input.fire && !crossing.wasFire) {
+        if (crossing.lane + 1 <= CROSS_LANES) {
+          crossing.hopFrom = crossing.lane;
+          crossing.hopDir = 1;
+          crossing.laneT = 1;
+          triggerSquash(squash, 0, 1);
+        }
+      }
+      if (input.down && crossing.lane - 1 >= 0) {
+        crossing.hopFrom = crossing.lane;
+        crossing.hopDir = -1;
+        crossing.laneT = 1;
+      }
+      if (input.left)
+        crossing.x = clamp(crossing.x - dt * (0.55 + spec.handling * 0.03), 0.06, 0.94);
+      if (input.right)
+        crossing.x = clamp(crossing.x + dt * (0.55 + spec.handling * 0.03), 0.06, 0.94);
+      if (hitNow()) {
+        loseRun("Pip was clipped in traffic");
+        return;
+      }
+    }
+    crossing.wasFire = input.fire;
+
+    // traffic per lane
+    for (let lane = 1; lane < CROSS_LANES; lane++) {
+      const dir = lane % 2 === 1 ? 1 : -1;
+      crossing.spawnTimers[lane] -= dt;
+      if (crossing.spawnTimers[lane] <= 0) {
+        const density = 0.8 + spec.hazards * 0.12;
+        crossing.spawnTimers[lane] =
+          Math.max(0.55, (1.6 - spec.pace * 0.16) / density) + rng() * 0.8;
+        const kind = Math.floor(rng() * 3);
+        crossing.vehicles.push({
+          lane,
+          x: dir === 1 ? -0.12 : 1.12,
+          speed: dir * (0.16 + spec.pace * 0.03 + rng() * 0.08),
+          kind,
+          len: kind === 0 ? 0.14 : kind === 1 ? 0.2 : 0.09,
+        });
+      }
+    }
+    for (let i = crossing.vehicles.length - 1; i >= 0; i--) {
+      const v = crossing.vehicles[i];
+      v.x += v.speed * dt;
+      if (v.x < -0.3 || v.x > 1.3) crossing.vehicles.splice(i, 1);
+    }
+
+    updateTokenDrops(dt, (t) => {
+      if (
+        t.y > field.y + field.h - 46 &&
+        Math.abs(t.x - (field.x + crossing.x * field.w)) < 14
+      ) {
+        score += windfallScore(60);
+        emit("token");
+        t.ttl = 0;
+      }
+    });
+  }
+
+  function renderCrossing(ctx: CanvasRenderingContext2D) {
+    const sx = field.w / W;
+    const sy = field.h / H;
+
+    // pavements top & bottom
+    drawBevelPlate(ctx, field.x, field.y + field.h - 30, field.w, 30, "#3a342c", "#6a6154", 3);
+    drawBevelPlate(ctx, field.x, field.y, field.w, 26, "#3a342c", "#6a6154", 3);
+
+    // traffic lanes with dashed brass markings
+    for (let lane = 1; lane < CROSS_LANES; lane++) {
+      const top = crossingLaneY(lane) - CROSS_LANE_H + 6;
+      ctx.fillStyle = "#191d24";
+      ctx.fillRect(field.x, top, field.w, CROSS_LANE_H - 6);
+      ctx.fillStyle = "#c9a25a";
+      const midY = crossingLaneY(lane) - CROSS_LANE_H / 2;
+      for (let dx2 = field.x + 6; dx2 < field.x + field.w - 8; dx2 += 30) {
+        ctx.fillRect(dx2, midY, 14, 2);
+      }
+    }
+
+    // vehicles
+    for (const v of crossing.vehicles) {
+      const vy = crossingLaneY(v.lane) - CROSS_LANE_H / 2;
+      const vw = v.len * field.w;
+      const vx = field.x + v.x * field.w - vw / 2;
+      glowOn(ctx, CROSS_COLORS[v.kind], 4);
+      drawBevelPlate(ctx, vx, vy, vw, CROSS_LANE_H - 12, CROSS_COLORS[v.kind], "#ffe9c9", 2);
+      glowOff(ctx);
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.fillRect(vx + vw * 0.15, vy + 3, vw * 0.2, 4);
+      if (v.kind === 1) {
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath();
+        ctx.arc(vx + vw / 2, vy + (CROSS_LANE_H - 12) / 2, 6, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // brass buttons
+    for (const b of crossing.buttons) {
+      if (b.taken) continue;
+      const byy = crossingLaneY(b.lane) - 6;
+      const bxx = field.x + b.x * field.w;
+      glowOn(ctx, "#c9a25a", 8);
+      ctx.fillStyle = "#c9a25a";
+      ctx.beginPath();
+      ctx.arc(bxx, byy, 5, 0, Math.PI * 2);
+      ctx.fill();
+      glowOff(ctx);
+      ctx.fillStyle = "#8a6a2b";
+      ctx.fillRect(bxx - 2, byy - 1, 4, 2);
+    }
+
+    // Pip the pigeon, mid-hop arc
+    const hopT = crossing.laneT;
+    const tE = 1 - hopT;
+    const laneNow = hopT > 0 ? crossing.hopFrom : crossing.lane;
+    const laneNext = hopT > 0 ? crossing.hopFrom + crossing.hopDir : crossing.lane;
+    const yNow = crossingLaneY(clamp(laneNow, 0, CROSS_LANES));
+    const yNext = crossingLaneY(clamp(laneNext, 0, CROSS_LANES));
+    const py2 = yNow + (yNext - yNow) * tE - Math.sin(tE * Math.PI) * 14;
+    const pxx = field.x + crossing.x * field.w;
+    glowOn(ctx, "#7ec8e3", 6);
+    ctx.fillStyle = "#7ec8e3";
+    ctx.beginPath();
+    ctx.ellipse(pxx, py2 - 8, 8 * sx, 7 * sy, 0, 0, Math.PI * 2);
+    ctx.fill();
+    glowOff(ctx);
+    ctx.fillStyle = "#a8d8ea";
+    ctx.beginPath();
+    ctx.arc(pxx + 6 * sx, py2 - 13, 4 * sy, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#e2a33c";
+    ctx.fillRect(pxx + 9 * sx, py2 - 14, 5 * sx, 2);
+    ctx.fillStyle = "#2a2015";
+    ctx.fillRect(pxx + 7 * sx, py2 - 14, 2, 2);
+    ctx.fillStyle = "#e2a33c";
+    ctx.fillRect(pxx - 3 * sx, py2 - 2, 2, Math.max(2, 4 * sy));
+    ctx.fillRect(pxx + 2 * sx, py2 - 2, 2, Math.max(2, 4 * sy));
+
+    drawScanlines(ctx, field.x, field.y, field.w, field.h);
+    ctx.fillStyle = pal.ink;
+    ctx.font = "10px monospace";
+    ctx.fillText(
+      `BUTTONS ${crossing.collected}/${crossing.target}`,
+      field.x + 8,
+      field.y + 14,
+    );
+  }
+
   function reset() {
     seals = maxSeals;
     score = 0;
@@ -879,6 +1424,8 @@ export function createCartridge(
     buildFlyer();
     buildBurrower();
     buildScaffolding();
+    buildMenagerie();
+    buildCrossing();
     flyerSpawn = 0;
     scaffoldSpawn = 1.2;
     input_beam = false;
@@ -1562,6 +2109,8 @@ export function createCartridge(
     else if (spec.mould === "flyer") updateFlyer(step, input);
     else if (spec.mould === "burrower") updateBurrower(step, input);
     else if (spec.mould === "scaffolding") updateScaffolding(step, input);
+    else if (spec.mould === "stacker") updateMenagerie(step, input);
+    else if (spec.mould === "crossing") updateCrossing(step, input);
     else updateInvaders(step, input);
     tickEffects(step);
     tickBlackout(step);
@@ -1606,6 +2155,8 @@ export function createCartridge(
     else if (spec.mould === "flyer") renderFlyer(ctx);
     else if (spec.mould === "burrower") renderBurrower(ctx);
     else if (spec.mould === "scaffolding") renderScaffolding(ctx);
+    else if (spec.mould === "stacker") renderMenagerie(ctx);
+    else if (spec.mould === "crossing") renderCrossing(ctx);
     else renderInvaders(ctx);
 
     renderParticles(ctx);

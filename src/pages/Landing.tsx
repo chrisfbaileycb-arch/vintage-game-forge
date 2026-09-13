@@ -70,6 +70,36 @@ const EXHIBITS: CartridgeSpec[] = [
     bells: true,
     hue: 210,
   }),
+  normalizeSpec({
+    mould: "stacker",
+    title: "BOOTS' DOCK",
+    gridDensity: 3,
+    handling: 4,
+    hazards: 3,
+    tokens: 3,
+    pace: 3,
+    palette: "sepia",
+    frame: "plaque",
+    twist: "none",
+    finish: "lithograph",
+    bells: true,
+    hue: 0,
+  }),
+  normalizeSpec({
+    mould: "crossing",
+    title: "PIP'S CROSSING",
+    gridDensity: 3,
+    handling: 4,
+    hazards: 4,
+    tokens: 3,
+    pace: 3,
+    palette: "blueprint",
+    frame: "ticket",
+    twist: "none",
+    finish: "electric",
+    bells: true,
+    hue: 0,
+  }),
 ];
 
 export default function Landing() {
@@ -127,7 +157,7 @@ export default function Landing() {
             </div>
             <dl className="mt-10 grid max-w-md grid-cols-3 gap-4 text-center">
               {[
-                ["5", "cast-iron moulds"],
+                ["9", "cast-iron moulds"],
                 ["144", "colourways"],
                 ["∞", "impressions"],
               ].map(([n, label]) => (
@@ -152,14 +182,13 @@ export default function Landing() {
             </div>
           </div>
           <div className="lg:col-span-2 rounded-lg border-2 bg-card/80 p-4 paper-lift">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="stamp text-[10px]">EXHIBITS B, C & D</p>
-              <p className="font-pressing text-[10px] tracking-widest text-muted-foreground">
-                THREE FURTHER SPECIMENS — PLAYABLE
-              </p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">                <p className="stamp text-[10px]">EXHIBITS B THROUGH F</p>
+                <p className="font-pressing text-[10px] tracking-widest text-muted-foreground">
+                  FIVE FURTHER SPECIMENS — PLAYABLE
+                </p>
             </div>
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {[EXHIBITS[1], EXHIBITS[2], EXHIBITS[3]].map(
+              {EXHIBITS.slice(1).map(
                 (exhibit, i) => exhibit ? <GameCanvas key={i} spec={exhibit} /> : null,
               )}
             </div>
@@ -181,7 +210,7 @@ export default function Landing() {
               {
                 step: "I",
                 title: "Select a mould",
-                body: "Five cast-iron moulds in the rack: the Breaker, the Serpent, the Sentinels, the Stereoscope (a true first-person maze), and the Aerodrome.",
+                body: "Nine cast-iron moulds in the rack: the Breaker, the Serpent, the Sentinels, the Stereoscope (a true first-person maze), the Aerodrome, the Burrower, the Scaffolding — and two character presses starring Boots the Badger and Pip the Pigeon.",
               },
               {
                 step: "II",
@@ -236,9 +265,11 @@ export default function Landing() {
             The pattern book — {PATTERN_COUNT} named games
           </h2>
           <p className="mt-2 max-w-2xl text-muted-foreground">
-            Fifty house patterns, ten per mould — each a complete dial setting
-            that plays differently from its neighbours. Open any cabinet below,
-            or re-cast a pattern with your own dials in the Studio.
+            One hundred house patterns — ten per classic mould, and fifteen
+            apiece for the two character presses. Each is a complete dial
+            setting that plays differently from its neighbours. Open any
+            cabinet below, or re-cast a pattern with your own dials in the
+            Studio.
           </p>
           <div className="mt-8 space-y-10">
             {[...patternsByMould().entries()].map(([mouldId, entries]) => {
@@ -303,7 +334,7 @@ export default function Landing() {
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
             Open a studio, set the dials, and walk away with a sealed vintage
             cartridge that anyone on earth can play — or start from one of the
-            fifty patterns above.
+            hundred patterns above.
           </p>
           <div className="mt-8">
             <Button size="lg" onClick={() => navigate(isAuthenticated ? "/studio" : "/auth?returnTo=/studio")}>

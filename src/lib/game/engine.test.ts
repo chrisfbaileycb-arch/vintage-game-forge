@@ -358,3 +358,64 @@ describe("mould №7 — scaffolding (tiers & barrels)", () => {
     expect(Number.isFinite(cart.hud.score)).toBe(true);
   });
 });
+
+describe("mould №8 — menagerie (dock stacking)", () => {
+  it("starts with a stacking objective and an empty dock", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "stacker", pace: 2, tokens: 0 }),
+      { random: makeRng() },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    expect(cart.hud.objective).toContain("Stack");
+    expect(cart.hud.progress).toBe(0);
+    expect(cart.hud.seals).toBeGreaterThanOrEqual(0);
+  });
+
+  it("swings the hook, drops crates and never crashes over a long run", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "stacker", pace: 5, hazards: 7, handling: 6 }),
+      { random: makeRng(9) },
+    );
+    const seen: string[] = [];
+    cart.onEvent((e) => seen.push(e));
+    runTicks(cart, 1800, (i, input) => {
+      input.fire = i % 90 < 8; // release the crate on the swing
+      input.left = i % 180 < 90;
+      input.right = !input.left;
+    });
+    expect(seen).toContain("checkpoint"); // at least one crate landed
+    expect(["playing", "lost", "won", "title"]).toContain(cart.hud.state);
+    expect(Number.isFinite(cart.hud.score)).toBe(true);
+  });
+});
+
+describe("mould №9 — crossing guard (thoroughfare)", () => {
+  it("starts at the kerb with a brass-button objective", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "crossing", pace: 2, tokens: 0 }),
+      { random: makeRng() },
+    );
+    runTicks(cart, 5, (_i, input) => {
+      input.fire = true;
+    });
+    expect(cart.hud.objective).toContain("buttons");
+    expect(cart.hud.progress).toBe(0);
+  });
+
+  it("hops lanes through traffic without crashing over a long run", () => {
+    const cart = createCartridge(
+      normalizeSpec({ mould: "crossing", pace: 5, hazards: 7, handling: 6 }),
+      { random: makeRng(3) },
+    );
+    runTicks(cart, 1800, (i, input) => {
+      input.fire = i % 100 < 5; // hop forward
+      input.left = i % 40 < 20;
+      input.right = !input.left;
+    });
+    expect(["playing", "lost", "won", "title"]).toContain(cart.hud.state);
+    expect(cart.hud.seals).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(cart.hud.score)).toBe(true);
+  });
+});
