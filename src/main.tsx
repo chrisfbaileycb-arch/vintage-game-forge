@@ -15,6 +15,9 @@ const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Studio = lazy(() => import("./pages/Studio.tsx"));
 const Workshop = lazy(() => import("./pages/Workshop.tsx"));
 const Play = lazy(() => import("./pages/Play.tsx"));
+const Moulds = lazy(() => import("./pages/Moulds.tsx"));
+const Patterns = lazy(() => import("./pages/Patterns.tsx"));
+const About = lazy(() => import("./pages/About.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -142,6 +145,9 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
+              <Route path="/moulds" element={<Moulds />} />
+              <Route path="/patterns" element={<Patterns />} />
+              <Route path="/about" element={<About />} />
               <Route path="/play/:cartridgeId" element={<Play />} />
               <Route path="/play/standalone" element={<Play />} />
               <Route

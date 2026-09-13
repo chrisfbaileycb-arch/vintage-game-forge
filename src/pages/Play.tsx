@@ -12,8 +12,9 @@ import {
   type CartridgeSpec,
 } from "@/lib/game/moulds";
 import { getPattern } from "@/lib/game/patterns";
+import { cabinet, type LocalScore } from "@/lib/cabinet";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, Copy, Share2, Trophy } from "lucide-react";
+import { ArrowLeft, Copy, RotateCcw, Share2, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -99,6 +100,29 @@ export default function Play() {
       : cartridgeId === "standalone"
         ? HOUSE_SPEC
         : null;
+
+  // Local run ledger: every finished run is recorded in this browser,
+  // whether or not the cartridge lives on a server. Server-ledger filing
+  // (the "File score" button) stays a deliberate, separate action.
+  const [localScores, setLocalScores] = useState<LocalScore[]>([]);
+  useEffect(() => {
+    if (!spec) return;
+    setLocalScores(cabinet.listScores(validId ?? null, patternId));
+  }, [spec, validId, patternId]);
+
+  function handleRunEnd(result: { score: number; outcome: "won" | "lost" }) {
+    if (!spec) return;
+    cabinet.recordScore({
+      cartridgeId: validId ?? null,
+      presetId: patternId,
+      cartridgeTitle: spec.title,
+      score: result.score,
+      level: 1,
+      durationSec: 0,
+      outcome: result.outcome,
+    });
+    setLocalScores(cabinet.listScores(validId ?? null, patternId));
+  }
 
   const noCartridge =
     (validId && game === null) ||
@@ -227,9 +251,14 @@ export default function Play() {
                   <Button variant="outline" onClick={handleShare} disabled={!shareUrl}>
                     <Copy className="size-4" /> Copy share link
                   </Button>
-                  {looseSpec && (
-                    <Button variant="outline" onClick={() => navigate("/studio")}>
-                      Forge one like it
+                  {spec && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        navigate("/studio", { state: { pattern: spec } })
+                      }
+                    >
+                      <RotateCcw className="size-4" /> Re-cast in the Studio
                     </Button>
                   )}
                 </div>
@@ -245,6 +274,7 @@ export default function Play() {
                 <CardContent className="pt-6">
                   <GameCanvas
                     spec={spec}
+                    onRunEnd={handleRunEnd}
                     onSubmitScore={
                       validId && !submittedScore ? handleSubmitScore : undefined
                     }
@@ -258,6 +288,40 @@ export default function Play() {
             )}
           </div>
         </section>
+
+        {/* Local run ledger — this browser's runs on this cartridge */}
+        {spec && localScores.length > 0 && (
+          <>
+            <div className="rule-double" />
+            <section className="py-10">
+              <div className="flex items-center gap-3">
+                <Trophy className="size-5 text-primary" />
+                <h2 className="engraved text-2xl font-semibold">
+                  Your runs on this machine
+                </h2>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Kept locally in this browser; not filed to the public ledger.
+              </p>
+              <ol className="font-pressing mt-6 max-w-xl space-y-2 text-xs tracking-wide">
+                {localScores.slice(0, 8).map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="flex items-baseline justify-between rounded-md border bg-card/60 px-4 py-2 paper-lift"
+                  >
+                    <span className="text-muted-foreground">
+                      {entry.outcome === "won" ? "CLEARED" : "RUN"} ·{" "}
+                      {new Date(entry.createdAt).toLocaleDateString()}
+                    </span>
+                    <span className="text-foreground">
+                      {entry.score.toLocaleString()} pts
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          </>
+        )}
 
         {/* Ledger of top scores */}
         {validId && leaderboard && leaderboard.length > 0 && (

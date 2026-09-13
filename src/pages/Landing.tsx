@@ -1,3 +1,4 @@
+import { SiteNav } from "@/components/SiteNav";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
@@ -110,27 +111,7 @@ export default function Landing() {
     <div className="paper-texture min-h-screen">
       <div className="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
         {/* Masthead */}
-        <header className="flex items-center justify-between gap-4 py-5">
-          <div className="flex items-center gap-3">
-            <img src="/logo.svg" alt="Foundry seal" className="h-10 w-10 rounded-sm sepia-plate" />
-            <div className="leading-tight">
-              <p className="small-caps text-xs text-muted-foreground">Est. MMXXVI · The Cartridge Foundry</p>
-              <p className="font-pressing text-[10px] tracking-[0.2em] text-muted-foreground">VINTAGE GAME MANUFACTURER</p>
-            </div>
-          </div>
-          <nav className="flex items-center gap-2">
-            {isAuthenticated ? (
-              <Button onClick={() => navigate("/studio")}>Enter the Studio</Button>
-            ) : (
-              <>
-                <Button variant="ghost" onClick={() => navigate("/auth?returnTo=/studio")}>
-                  Sign in
-                </Button>
-                <Button onClick={() => navigate("/auth?returnTo=/studio")}>Open a Studio</Button>
-              </>
-            )}
-          </nav>
-        </header>
+        <SiteNav subtitle="VINTAGE GAME MANUFACTURER" />
 
         <div className="rule-double" />
 
@@ -215,7 +196,7 @@ export default function Landing() {
               {
                 step: "II",
                 title: "Set the dials",
-                body: "Twelve of them: rows, pace, handling, fixtures, house tokens, palette, frame, twist, plate finish, foundry bells — each stamped with its setting.",
+                body: "Pace, rows, density, handling, fixtures, house tokens, palette, frame, twist, plate finish, bells, toning, run seed — each stamped with its setting and its gameplay effect.",
               },
               {
                 step: "III",
@@ -300,19 +281,18 @@ export default function Landing() {
                             }
                           >
                             Play
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="flex-1"
-                            onClick={() =>
-                              navigate("/studio", {
-                                state: { pattern: entry.spec },
-                              })
-                            }
-                          >
-                            Re-cast
-                          </Button>
+                          </Button>                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="flex-1"
+                              onClick={() =>
+                                navigate("/studio", {
+                                  state: { pattern: entry.spec },
+                                })
+                              }
+                            >
+                              Re-cast
+                            </Button>
                         </div>
                       </li>
                     ))}

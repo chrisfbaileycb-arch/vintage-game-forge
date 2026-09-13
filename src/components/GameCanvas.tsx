@@ -29,11 +29,14 @@ export function GameCanvas({
   className,
   showHud = true,
   onSubmitScore,
+  onRunEnd,
 }: {
   spec: CartridgeSpec;
   className?: string;
   showHud?: boolean;
   onSubmitScore?: (score: number) => void;
+  /** Fired once when a run ends (won or lost) with the final score. */
+  onRunEnd?: (result: { score: number; outcome: "won" | "lost" }) => void;
 }) {
   return (
     <CartridgeView
@@ -42,6 +45,7 @@ export function GameCanvas({
       className={className}
       showHud={showHud}
       onSubmitScore={onSubmitScore}
+      onRunEnd={onRunEnd}
     />
   );
 }
@@ -51,11 +55,13 @@ function CartridgeView({
   className,
   showHud,
   onSubmitScore,
+  onRunEnd,
 }: {
   spec: CartridgeSpec;
   className?: string;
   showHud: boolean;
   onSubmitScore?: (score: number) => void;
+  onRunEnd?: (result: { score: number; outcome: "won" | "lost" }) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const inputRef = useRef<EngineInput>(emptyInput());
@@ -83,6 +89,12 @@ function CartridgeView({
     mutedRef.current = muted;
   }, [muted]);
 
+  // Latest-callback ref so the rAF loop sees fresh handlers without restarting.
+  const onRunEndRef = useRef(onRunEnd);
+  useEffect(() => {
+    onRunEndRef.current = onRunEnd;
+  }, [onRunEnd]);
+
   // rAF loop
   useEffect(() => {
     let raf = 0;
@@ -93,11 +105,18 @@ function CartridgeView({
     if (!ctx) return;
 
     let lastHud: HudState | null = null;
+    let prevState: string | null = null;
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
       cartridge.update(dt, inputRef.current);
       cartridge.render(ctx);
+      // Detect a finished run exactly once (playing → won/lost transition).
+      const st = cartridge.hud.state;
+      if (prevState === "playing" && (st === "won" || st === "lost")) {
+        onRunEndRef.current?.({ score: cartridge.hud.score, outcome: st });
+      }
+      prevState = st;
       if (cartridge.hud !== lastHud) {
         lastHud = cartridge.hud;
         setHud(lastHud);
@@ -109,7 +128,12 @@ function CartridgeView({
   }, [cartridge]);
 
   // Keyboard: arrows/WASD steer, Space/Enter fires, P pauses.
+  // Scoped to the focused cabinet so several cabinets (or page scrolling)
+  // never fight over the keyboard. Click or tab into the cabinet to play.
+  const cabinetRef = useRef<HTMLDivElement | null>(null);
+  const [focused, setFocused] = useState(false);
   useEffect(() => {
+    if (!focused) return;
     const setKey = (e: KeyboardEvent, down: boolean) => {
       const input = inputRef.current;
       switch (e.key) {
@@ -150,13 +174,25 @@ function CartridgeView({
     };
     const onDown = (e: KeyboardEvent) => setKey(e, true);
     const onUp = (e: KeyboardEvent) => setKey(e, false);
+    const onBlur = () => {
+      // Never leave an input latched when focus leaves the cabinet.
+      const input = inputRef.current;
+      input.left = false;
+      input.right = false;
+      input.up = false;
+      input.down = false;
+      input.fire = false;
+    };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", onBlur);
+      onBlur();
     };
-  }, [cartridge]);
+  }, [cartridge, focused]);
 
   // Touch: hold left/right half to steer, press to fire.
   // First-person moulds: drag to look, vertical drag to walk.
@@ -251,8 +287,19 @@ function CartridgeView({
       )}
 
       <div
-        className="crt-curve bezel-riveted paper-lift relative mx-auto w-full max-w-[420px] touch-none select-none rounded-md border-2 bg-black p-2"
-        onPointerDown={onPointerDown}
+        ref={cabinetRef}
+        tabIndex={0}
+        role="application"
+        aria-label={`${spec.title} — game cabinet. Click or tab here, then use arrow keys or WASD to play.`}
+        className="crt-curve bezel-riveted paper-lift relative mx-auto w-full max-w-[420px] touch-none select-none rounded-md border-2 bg-black p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        onFocus={() => setFocused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocused(false);
+        }}
+        onPointerDown={(e) => {
+          cabinetRef.current?.focus();
+          onPointerDown(e);
+        }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
@@ -272,46 +319,50 @@ function CartridgeView({
           spec.mould === "scaffolding" ||
           spec.mould === "stacker" ||
           spec.mould === "crossing") && (
-        <div className="mx-auto grid w-40 grid-cols-3 gap-1 sm:hidden">
+        <div className="mx-auto grid w-56 grid-cols-3 gap-2 sm:hidden">
           <span />
           <Button
             variant="outline"
-            size="sm"
+            className="min-h-11 min-w-11 text-lg"
             aria-label="Up"
             onPointerDown={() => (inputRef.current.up = true)}
             onPointerUp={() => (inputRef.current.up = false)}
             onPointerLeave={() => (inputRef.current.up = false)}
+            onPointerCancel={() => (inputRef.current.up = false)}
           >
             ↑
           </Button>
           <span />
           <Button
             variant="outline"
-            size="sm"
+            className="min-h-11 min-w-11 text-lg"
             aria-label="Left"
             onPointerDown={() => (inputRef.current.left = true)}
             onPointerUp={() => (inputRef.current.left = false)}
             onPointerLeave={() => (inputRef.current.left = false)}
+            onPointerCancel={() => (inputRef.current.left = false)}
           >
             ←
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            className="min-h-11 min-w-11 text-lg"
             aria-label="Down"
             onPointerDown={() => (inputRef.current.down = true)}
             onPointerUp={() => (inputRef.current.down = false)}
             onPointerLeave={() => (inputRef.current.down = false)}
+            onPointerCancel={() => (inputRef.current.down = false)}
           >
             ↓
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            className="min-h-11 min-w-11 text-lg"
             aria-label="Right"
             onPointerDown={() => (inputRef.current.right = true)}
             onPointerUp={() => (inputRef.current.right = false)}
             onPointerLeave={() => (inputRef.current.right = false)}
+            onPointerCancel={() => (inputRef.current.right = false)}
           >
             →
           </Button>

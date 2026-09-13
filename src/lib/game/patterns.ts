@@ -11,6 +11,7 @@
 
 import type { CartridgeSpec } from "./moulds";
 import { normalizeSpec } from "./moulds";
+import { seedFromString } from "./rng";
 
 export interface PatternEntry {
   id: string;
@@ -668,7 +669,9 @@ export const PATTERNS: PatternEntry[] = RAW_PATTERNS.map((p) => ({
   id: p.id,
   name: p.name,
   blurb: p.blurb,
-  spec: normalizeSpec(p.dial),
+  // Every preset carries a stable seed derived from its id, so a preset
+  // always generates the same board — a real configuration, not a label.
+  spec: normalizeSpec({ ...p.dial, seed: seedFromString(p.id) }),
 }));
 
 export const PATTERN_COUNT = PATTERNS.length;
