@@ -53,6 +53,20 @@ const schema = defineSchema(
       .index("by_mould", ["mould"])
       .index("by_public_recent", ["isPublic", "createdAt"]),
 
+    // Revocable share links. The token is 128 bits of CSPRNG entropy,
+    // unguessable and unrelated to the cartridge id; the owner can revoke
+    // it at any time, which makes the link dead instantly.
+    shareLinks: defineTable({
+      gameId: v.id("gameDesigns"),
+      token: v.string(), // url-safe, 22 chars of base64url entropy
+      createdBy: v.id("users"),
+      revoked: v.boolean(),
+      createdAt: v.number(),
+      revokedAt: v.optional(v.number()),
+    })
+      .index("by_token", ["token"])
+      .index("by_game", ["gameId", "revoked"]),
+
     // High scores: one ledger entry per submitted run.
     scores: defineTable({
       gameId: v.id("gameDesigns"),

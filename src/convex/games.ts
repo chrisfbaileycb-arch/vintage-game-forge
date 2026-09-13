@@ -5,6 +5,19 @@ import { MutationCtx, mutation, query } from "./_generated/server";
 import { normalizeSpec } from "../lib/game/moulds";
 
 /**
+ * Generate a 128-bit url-safe share token (CSPRNG via node crypto in the
+ * Convex action runtime; Math.random fallback is avoided — Convex mutations
+ * run on a V8 runtime with crypto.getRandomValues available).
+ */
+function makeShareToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
  * Sanitize an incoming spec through the engine's own normalizer — the single
  * source of truth for dial ranges, enum whitelists, and mould validation.
  * Everything unknown is dropped; the result is always a playable spec.
@@ -217,6 +230,98 @@ export const submitScore = mutation({
       await bumpCounter(ctx, userId, { plays: 1, totalScore: score, bestScore: score });
     }
     return { score, best: Math.max(game.bestScore ?? 0, score) };
+  },
+});
+
+/**
+ * Create (or return the existing active) share link for one of your
+ * cartridges. Tokens are 128-bit unguessable values, unrelated to the
+ * cartridge id.
+ */
+export const createShareLink = mutation({
+  args: { id: v.id("gameDesigns") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Sign in first.");
+    const game = await ctx.db.get(args.id);
+    if (!game) throw new Error("No such cartridge.");
+    if (game.userId !== userId) throw new Error("Not your cartridge.");
+
+    const existing = await ctx.db
+      .query("shareLinks")
+      .withIndex("by_game", (q) => q.eq("gameId", args.id).eq("revoked", false))
+      .unique();
+    if (existing) return { token: existing.token };
+
+    const token = makeShareToken();
+    await ctx.db.insert("shareLinks", {
+      gameId: args.id,
+      token,
+      createdBy: userId,
+      revoked: false,
+      createdAt: Date.now(),
+    });
+    return { token };
+  },
+});
+
+/** Revoke a share link; the URL stops working immediately. */
+export const revokeShareLink = mutation({
+  args: { gameId: v.id("gameDesigns") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId) {
+      const game = await ctx.db.get(args.gameId);
+      if (!game) throw new Error("No such cartridge.");
+      if (game.userId !== userId) throw new Error("Not your cartridge.");
+    }
+    const links = await ctx.db
+      .query("shareLinks")
+      .withIndex("by_game", (q) => q.eq("gameId", args.gameId).eq("revoked", false))
+      .collect();
+    for (const link of links) {
+      await ctx.db.patch(link._id, {
+        revoked: true,
+        revokedAt: Date.now(),
+      });
+    }
+    return { revoked: links.length };
+  },
+});
+
+/** List share links for one of your cartridges. */
+export const listShareLinks = query({
+  args: { gameId: v.id("gameDesigns") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const game = await ctx.db.get(args.gameId);
+    if (!game) return [];
+    if (game.userId !== userId) return [];
+    return await ctx.db
+      .query("shareLinks")
+      .withIndex("by_game", (q) => q.eq("gameId", args.gameId).eq("revoked", false))
+      .collect();
+  },
+});
+
+/**
+ * Resolve a share token to its cartridge for the public cabinet page.
+ * Revoked tokens resolve to null — the link is dead, not redirected.
+ */
+export const getByShareToken = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const token = args.token.trim().slice(0, 64);
+    if (!/^[A-Za-z0-9_-]{10,64}$/.test(token)) return null;
+    const link = await ctx.db
+      .query("shareLinks")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!link || link.revoked) return null;
+    const game = await ctx.db.get(link.gameId);
+    if (!game || !game.isPublic) return null;
+    return game;
   },
 });
 
