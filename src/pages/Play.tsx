@@ -38,7 +38,7 @@ const HOUSE_SPEC: CartridgeSpec = normalizeSpec({
 });
 
 export default function Play() {
-  const { cartridgeId } = useParams();
+  const { cartridgeId, shareToken } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -55,30 +55,41 @@ export default function Play() {
     api.games.getPublic,
     validId ? { id: validId } : "skip",
   );
+  // Revocable share links: the token resolves to its cartridge server-side;
+  // revoked links resolve to null and render an empty sleeve below.
+  const sharedGame = useQuery(
+    api.games.getByShareToken,
+    shareToken ? { token: shareToken } : "skip",
+  );
+  const sharedId = sharedGame?._id ?? undefined;
+  /** Whichever cartridge is actually on the platter: direct id or shared. */
+  const ledgerId = validId ?? sharedId;
+  /** The resolved cartridge record, by either path. */
+  const resolvedGame = game ?? sharedGame;
   const recordPlay = useMutation(api.games.recordPlay);
   const showcase = useQuery(api.games.listShowcase);
 
   const [counted, setCounted] = useState(false);
   useEffect(() => {
-    if (validId && game && !counted) {
+    if (ledgerId && resolvedGame && !counted) {
       setCounted(true);
-      void recordPlay({ id: validId });
+      void recordPlay({ id: ledgerId });
     }
-  }, [validId, game, counted, recordPlay]);
+  }, [ledgerId, resolvedGame, counted, recordPlay]);
 
   const leaderboard = useQuery(
     api.games.leaderboard,
-    validId ? { gameId: validId, limit: 10 } : "skip",
+    ledgerId ? { gameId: ledgerId, limit: 10 } : "skip",
   );
   const submitScore = useMutation(api.games.submitScore);
   const [submitting, setSubmitting] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
 
   const handleSubmitScore = async (score: number) => {
-    if (!validId || submitting) return;
+    if (!ledgerId || submitting) return;
     setSubmitting(true);
     try {
-      const result = await submitScore({ gameId: validId, score, combo: 0 });
+      const result = await submitScore({ gameId: ledgerId, score, combo: 0 });
       setSubmittedScore(score);
       toast.success(
         score >= result.best
@@ -97,9 +108,11 @@ export default function Play() {
     ? looseSpec
     : game
       ? normalizeSpec(game.spec)
-      : cartridgeId === "standalone"
-        ? HOUSE_SPEC
-        : null;
+      : sharedGame
+        ? normalizeSpec(sharedGame.spec)
+        : cartridgeId === "standalone"
+          ? HOUSE_SPEC
+          : null;
 
   // Local run ledger: every finished run is recorded in this browser,
   // whether or not the cartridge lives on a server. Server-ledger filing
@@ -107,13 +120,13 @@ export default function Play() {
   const [localScores, setLocalScores] = useState<LocalScore[]>([]);
   useEffect(() => {
     if (!spec) return;
-    setLocalScores(cabinet.listScores(validId ?? null, patternId));
-  }, [spec, validId, patternId]);
+    setLocalScores(cabinet.listScores(ledgerId ?? null, patternId));
+  }, [spec, ledgerId, patternId]);
 
   function handleRunEnd(result: { score: number; outcome: "won" | "lost" }) {
     if (!spec) return;
     cabinet.recordScore({
-      cartridgeId: validId ?? null,
+      cartridgeId: ledgerId ?? null,
       presetId: patternId,
       cartridgeTitle: spec.title,
       score: result.score,
@@ -121,17 +134,18 @@ export default function Play() {
       durationSec: 0,
       outcome: result.outcome,
     });
-    setLocalScores(cabinet.listScores(validId ?? null, patternId));
+    setLocalScores(cabinet.listScores(ledgerId ?? null, patternId));
   }
 
   const noCartridge =
     (validId && game === null) ||
+    (Boolean(shareToken) && sharedGame === null) ||
     (Boolean(cartridgeId) && !validId && !looseSpec && cartridgeId !== "standalone");
 
   const shareUrl = looseSpec
     ? `${window.location.origin}/play/standalone?code=${looseCode}`
-    : validId
-      ? `${window.location.origin}/play/${validId}`
+    : ledgerId
+      ? `${window.location.origin}/play/${ledgerId}`
       : "";
 
   const handleShare = async () => {

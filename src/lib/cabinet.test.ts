@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 /**
  * Cabinet repository tests. localStorage is mocked in-memory so the tests
@@ -7,11 +7,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = new Map<string, string>();
 
-vi.stubGlobal("localStorage", {
-  getItem: (k: string) => store.get(k) ?? null,
-  setItem: (k: string, v: string) => void store.set(k, v),
-  removeItem: (k: string) => void store.delete(k),
-  clear: () => store.clear(),
+// Installed directly rather than via vi.stubGlobal so the suite is
+// runner-agnostic (Bun's test runner does not implement stubGlobal).
+Object.defineProperty(globalThis, "localStorage", {
+  value: {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+    clear: () => store.clear(),
+  },
+  configurable: true,
+  writable: true,
 });
 
 import { cabinet } from "./cabinet";

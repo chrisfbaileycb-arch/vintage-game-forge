@@ -43,10 +43,12 @@ import {
   Eye,
   EyeOff,
   Factory,
+  Link2,
   MoreHorizontal,
   Pencil,
   Play,
   RotateCcw,
+  Share2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -121,11 +123,17 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
   const renameGame = useMutation(api.games.rename);
   const setPublicGame = useMutation(api.games.setPublic);
   const remasterGame = useMutation(api.games.remaster);
+  const createShare = useMutation(api.games.createShareLink);
+  const revokeShare = useMutation(api.games.revokeShareLink);
   const stats = useQuery(api.games.myStats);
 
   const [playing, setPlaying] = useState<CartridgeSpec | null>(null);
   const [playingTitle, setPlayingTitle] = useState("");
   const [renaming, setRenaming] = useState<{
+    id: Id<"gameDesigns">;
+    title: string;
+  } | null>(null);
+  const [sharing, setSharing] = useState<{
     id: Id<"gameDesigns">;
     title: string;
   } | null>(null);
@@ -137,6 +145,31 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
       toast.success("Share link copied.", { description: url });
     } catch {
       toast.error("Could not copy — the address is " + url);
+    }
+  };
+
+  const handleCreateShare = async () => {
+    if (!sharing) return;
+    try {
+      const { token } = await createShare({ id: sharing.id });
+      const url = `${window.location.origin}/s/${token}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Revocable share link copied.", { description: url });
+    } catch {
+      toast.error("Could not mint a share link.");
+    }
+  };
+
+  const handleRevokeShare = async (gameId: Id<"gameDesigns">) => {
+    try {
+      const { revoked } = await revokeShare({ gameId });
+      toast.success(
+        revoked > 0
+          ? "Share link revoked — the URL is now dead."
+          : "No active share link to revoke.",
+      );
+    } catch {
+      toast.error("Could not revoke the share link.");
     }
   };
 
@@ -246,10 +279,16 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
                           <DropdownMenuItem
+                            onClick={() => setSharing({ id: g._id, title: g.title })}
+                            className="cursor-pointer"
+                          >
+                            <Link2 className="mr-2 size-4" /> Share link…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => handleCopyLink(g._id)}
                             className="cursor-pointer"
                           >
-                            <Copy className="mr-2 size-4" /> Copy share link
+                            <Copy className="mr-2 size-4" /> Copy direct link
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setRenaming({ id: g._id, title: g.title })}
@@ -377,6 +416,40 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
             </Button>
             <Button onClick={handleRename}>Save</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share-link dialog: mint or revoke a revocable token link */}
+      <Dialog
+        open={sharing !== null}
+        onOpenChange={(open) => {
+          if (!open) setSharing(null);
+        }}
+      >
+        <DialogContent className="max-w-md bg-card">
+          <DialogHeader>
+            <DialogTitle>Share “{sharing?.title}”</DialogTitle>
+            <DialogDescription>
+              Mint a private token link — unguessable, and yours to revoke at
+              any time. Revoking makes the URL dead immediately, even for
+              people who already copied it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Button onClick={handleCreateShare}>
+              <Link2 className="size-4" /> Mint &amp; copy a fresh link
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => sharing && handleRevokeShare(sharing.id)}
+            >
+              <Share2 className="size-4" /> Revoke the active link
+            </Button>
+            <p className="small-caps text-xs text-muted-foreground">
+              Only one active link exists per cartridge; minting again returns
+              the same URL until you revoke it.
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </>

@@ -102,3 +102,88 @@ describe("difficulty rating", () => {
     expect(frantic.pace).toBeGreaterThan(gentle.pace);
   });
 });
+
+describe("render pipeline", () => {
+  /** A 2D-context stand-in that records method calls instead of painting. */
+  function recordingCtx() {
+    const calls = new Map<string, number>();
+    const touch = (name: string) => calls.set(name, (calls.get(name) ?? 0) + 1);
+    const ctx = {
+      // property-style state used by the CRT helpers
+      fillStyle: "",
+      strokeStyle: "",
+      globalAlpha: 1,
+      shadowBlur: 0,
+      shadowColor: "",
+      font: "",
+      lineWidth: 1,
+      save: () => touch("save"),
+      restore: () => touch("restore"),
+      fillRect: () => touch("fillRect"),
+      strokeRect: () => touch("strokeRect"),
+      clearRect: () => touch("clearRect"),
+      beginPath: () => touch("beginPath"),
+      closePath: () => undefined,
+      rect: () => undefined,
+      clip: () => undefined,
+      moveTo: () => undefined,
+      lineTo: () => undefined,
+      arc: () => undefined,
+      arcTo: () => undefined,
+      ellipse: () => undefined,
+      quadraticCurveTo: () => undefined,
+      bezierCurveTo: () => undefined,
+      fill: () => touch("fill"),
+      stroke: () => touch("stroke"),
+      fillText: () => touch("fillText"),
+      strokeText: () => touch("strokeText"),
+      translate: () => undefined,
+      scale: () => undefined,
+      rotate: () => undefined,
+      setTransform: () => undefined,
+      resetTransform: () => undefined,
+      drawImage: () => undefined,
+      createRadialGradient: () => ({
+        addColorStop: () => undefined,
+      }),
+      createLinearGradient: () => ({
+        addColorStop: () => undefined,
+      }),
+      createPattern: () => null,
+      measureText: () => ({ width: 0 }),
+    } as unknown as CanvasRenderingContext2D;
+    return { ctx, calls };
+  }
+
+  it("every preset paints real pixels when rendered", () => {
+    for (const pattern of PATTERNS) {
+      const cart = createCartridge(pattern.spec, { random: makeRng(11) });
+      const input = emptyInput();
+      input.fire = true;
+      cart.update(1 / 60, input); // leave the title state where possible
+      const { ctx, calls } = recordingCtx();
+      cart.render(ctx);
+      const painted =
+        (calls.get("fillRect") ?? 0) +
+        (calls.get("fill") ?? 0) +
+        (calls.get("fillText") ?? 0) +
+        (calls.get("stroke") ?? 0) +
+        (calls.get("strokeRect") ?? 0);
+      expect(painted, `${pattern.id} painted nothing`).toBeGreaterThan(0);
+    }
+  });
+
+  it("scanlines toggle changes the grille overlay output", () => {
+    const spec = normalizeSpec({ mould: "breakout" });
+    const cart = createCartridge(spec, { random: makeRng(3) });
+    const { ctx, calls } = recordingCtx();
+    cart.setScanlines(false);
+    cart.render(ctx);
+    const grilleOff = (calls.get("save") ?? 0) + (calls.get("fillRect") ?? 0);
+    calls.clear();
+    cart.setScanlines(true);
+    cart.render(ctx);
+    const grilleOn = (calls.get("save") ?? 0) + (calls.get("fillRect") ?? 0);
+    expect(grilleOn).toBeGreaterThan(grilleOff);
+  });
+});

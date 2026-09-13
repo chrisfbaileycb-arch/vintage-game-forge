@@ -270,11 +270,10 @@ export const revokeShareLink = mutation({
   args: { gameId: v.id("gameDesigns") },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
-    if (userId) {
-      const game = await ctx.db.get(args.gameId);
-      if (!game) throw new Error("No such cartridge.");
-      if (game.userId !== userId) throw new Error("Not your cartridge.");
-    }
+    if (!userId) throw new Error("Sign in first.");
+    const game = await ctx.db.get(args.gameId);
+    if (!game) throw new Error("No such cartridge.");
+    if (game.userId !== userId) throw new Error("Not your cartridge.");
     const links = await ctx.db
       .query("shareLinks")
       .withIndex("by_game", (q) => q.eq("gameId", args.gameId).eq("revoked", false))

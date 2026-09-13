@@ -26,6 +26,7 @@ const LINKS: { to: string; label: string }[] = [
   { to: "/patterns", label: "Pattern Book" },
   { to: "/play/standalone", label: "Play" },
   { to: "/workshop", label: "My Cabinet" },
+  { to: "/settings", label: "Settings" },
   { to: "/about", label: "About" },
 ];
 

@@ -116,6 +116,16 @@ function CartridgeView({
       controlsRef.current = loadControls();
       audioRef.current = loadAudio();
       setMuted(!audioRef.current.bells);
+      // Live-update the music engine: volume always, stop if the loop is
+      // switched off mid-run, and start an engine if it was off at mount.
+      if (audioRef.current.music && !musicRef.current) {
+        const music = createFoundryMusic();
+        music.setVolume(audioRef.current.volume);
+        musicRef.current = music;
+      } else if (musicRef.current) {
+        musicRef.current.setVolume(audioRef.current.volume);
+        if (!audioRef.current.music) musicRef.current.stop();
+      }
     });
   }, []);
 

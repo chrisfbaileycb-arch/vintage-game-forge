@@ -18,6 +18,7 @@ const Play = lazy(() => import("./pages/Play.tsx"));
 const Moulds = lazy(() => import("./pages/Moulds.tsx"));
 const Patterns = lazy(() => import("./pages/Patterns.tsx"));
 const About = lazy(() => import("./pages/About.tsx"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -148,8 +149,12 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/moulds" element={<Moulds />} />
               <Route path="/patterns" element={<Patterns />} />
               <Route path="/about" element={<About />} />
+              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/play/:cartridgeId" element={<Play />} />
               <Route path="/play/standalone" element={<Play />} />
+              {/* Revocable share links: /s/<token> resolves through the
+                  shareLinks table; revoked tokens render an empty sleeve. */}
+              <Route path="/s/:shareToken" element={<Play />} />
               <Route
                 path="/dashboard"
                 element={
