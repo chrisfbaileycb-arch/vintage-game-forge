@@ -12,6 +12,7 @@
 
 import type { CartridgeSpec, FinishId, PaletteId, TokenId } from "./moulds";
 import { EFFECT_LIMITS } from "./moulds";
+import { mulberry32 } from "./rng";
 import {
   CRT_BLACK,
   drawBarrelCorners,
@@ -283,7 +284,7 @@ export function createCartridge(
   const finish = FINISH_FLAGS[spec.finish];
   const paceMul = 0.55 + 0.22 * spec.pace;
   const maxSeals = spec.twist === "brittle" ? 1 : 3;
-  const rng: RandomSource = opts.random ?? Math.random;
+  const rng: RandomSource = opts.random ?? mulberry32(spec.seed ?? 1);
 
   const field: Rect =
     spec.twist === "compact"

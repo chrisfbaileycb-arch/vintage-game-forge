@@ -43,6 +43,12 @@ export interface CartridgeSpec {
   bells: boolean;
   /** Spectrum toning: hue rotation applied to the whole palette, 0..345 (degrees). */
   hue: number;
+  /** Deterministic run seed. Same seed + dials = same run, always. */
+  seed: number;
+  /** Cartridge schema version for forward-compatible migration. */
+  schemaVersion: number;
+  /** Public one-line description shown on cabinet pages. */
+  description: string;
   /** Public display name pressed onto the label. */
   title: string;
 }
@@ -290,6 +296,8 @@ export function toFinish(value: unknown): FinishId {
 }
 
 /** Clamp & validate a spec coming from the database or a share link. */
+export const SCHEMA_VERSION = 2;
+
 export function normalizeSpec(input: unknown): CartridgeSpec {
   const raw = (input ?? {}) as Record<string, unknown>;
   const mouldRaw = raw.mould;
@@ -321,6 +329,15 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
   const hue = clamp(raw.hue, 0, 345, 0);
   const bells =
     typeof raw.bells === "boolean" ? raw.bells : raw.bells === "true";
+  const seed = clamp(raw.seed, 0, 0xffffffff, 1);
+  const schemaVersion =
+    typeof raw.schemaVersion === "number" && Number.isFinite(raw.schemaVersion)
+      ? Math.max(1, Math.min(9, Math.floor(raw.schemaVersion)))
+      : SCHEMA_VERSION;
+  const description =
+    typeof raw.description === "string"
+      ? raw.description.trim().slice(0, 140)
+      : "";
 
   return {
     mould,
@@ -332,6 +349,9 @@ export function normalizeSpec(input: unknown): CartridgeSpec {
     tokens,
     bells,
     hue,
+    seed,
+    schemaVersion,
+    description,
     palette: toPalette(raw.palette),
     frame: toFrame(raw.frame),
     twist: toTwist(raw.twist),
