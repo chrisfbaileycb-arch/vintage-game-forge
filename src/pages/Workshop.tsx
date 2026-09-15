@@ -127,6 +127,14 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
   const revokeShare = useMutation(api.games.revokeShareLink);
   const stats = useQuery(api.games.myStats);
 
+  // Live state of the open share dialog's cartridge: the active token (if
+  // any) and its URL. Revoking updates this reactively.
+  const shareLinks = useQuery(
+    api.games.listShareLinks,
+    sharing ? { gameId: sharing.id } : "skip",
+  );
+  const activeShareToken = shareLinks?.[0]?.token;
+
   const [playing, setPlaying] = useState<CartridgeSpec | null>(null);
   const [playingTitle, setPlayingTitle] = useState("");
   const [renaming, setRenaming] = useState<{
@@ -157,6 +165,17 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
       toast.success("Revocable share link copied.", { description: url });
     } catch {
       toast.error("Could not mint a share link.");
+    }
+  };
+
+  const handleCopyShareUrl = async () => {
+    if (!activeShareToken) return;
+    const url = `${window.location.origin}/s/${activeShareToken}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Share link copied.", { description: url });
+    } catch {
+      toast.error("Could not copy — the address is " + url);
     }
   };
 
@@ -430,25 +449,49 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
           <DialogHeader>
             <DialogTitle>Share “{sharing?.title}”</DialogTitle>
             <DialogDescription>
-              Mint a private token link — unguessable, and yours to revoke at
-              any time. Revoking makes the URL dead immediately, even for
-              people who already copied it.
+              A token link is unguessable and yours to revoke at any time.
+              Revoking makes the URL dead immediately — even for people who
+              already copied it.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
-            <Button onClick={handleCreateShare}>
-              <Link2 className="size-4" /> Mint &amp; copy a fresh link
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => sharing && handleRevokeShare(sharing.id)}
-            >
-              <Share2 className="size-4" /> Revoke the active link
-            </Button>
-            <p className="small-caps text-xs text-muted-foreground">
-              Only one active link exists per cartridge; minting again returns
-              the same URL until you revoke it.
-            </p>
+            {shareLinks === undefined ? (
+              <p className="small-caps text-sm text-muted-foreground">
+                Consulting the ledger…
+              </p>
+            ) : activeShareToken ? (
+              <>
+                <div className="rounded-md border bg-background/60 px-3 py-2">
+                  <p className="small-caps text-[10px] text-muted-foreground">
+                    ACTIVE LINK
+                  </p>
+                  <p className="mt-1 break-all font-mono text-xs">
+                    {`${window.location.origin}/s/${activeShareToken}`}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleCopyShareUrl}>
+                    <Copy className="size-4" /> Copy link
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => sharing && handleRevokeShare(sharing.id)}
+                  >
+                    <Share2 className="size-4" /> Revoke
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button onClick={handleCreateShare}>
+                  <Link2 className="size-4" /> Mint &amp; copy a share link
+                </Button>
+                <p className="small-caps text-xs text-muted-foreground">
+                  No active link. Minting creates one; revoke it to kill the
+                  URL and mint a fresh one later.
+                </p>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

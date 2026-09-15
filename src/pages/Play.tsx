@@ -84,6 +84,12 @@ export default function Play() {
   const submitScore = useMutation(api.games.submitScore);
   const [submitting, setSubmitting] = useState(false);
   const [submittedScore, setSubmittedScore] = useState<number | null>(null);
+  // Reset per-cartridge flow state when navigating between cartridges
+  // client-side (this component is reused across /play/:id param changes).
+  useEffect(() => {
+    setCounted(false);
+    setSubmittedScore(null);
+  }, [ledgerId]);
 
   const handleSubmitScore = async (score: number) => {
     if (!ledgerId || submitting) return;
@@ -220,7 +226,7 @@ export default function Play() {
             {spec ? (
               <>
                 <p className="stamp mb-4 inline-block text-[10px] text-primary">
-                  {validId ? catalogueNumber(validId) : "LOOSE IMPRESSION"}
+                  {ledgerId ? catalogueNumber(ledgerId) : "LOOSE IMPRESSION"}
                 </p>
                 <h1 className="engraved text-4xl font-semibold sm:text-5xl">
                   {spec.title}
@@ -290,7 +296,7 @@ export default function Play() {
                     spec={spec}
                     onRunEnd={handleRunEnd}
                     onSubmitScore={
-                      validId && !submittedScore ? handleSubmitScore : undefined
+                      ledgerId && !submittedScore ? handleSubmitScore : undefined
                     }
                   />
                 </CardContent>
@@ -338,7 +344,7 @@ export default function Play() {
         )}
 
         {/* Ledger of top scores */}
-        {validId && leaderboard && leaderboard.length > 0 && (
+        {ledgerId && leaderboard && leaderboard.length > 0 && (
           <>
             <div className="rule-double" />
             <section className="py-10">
