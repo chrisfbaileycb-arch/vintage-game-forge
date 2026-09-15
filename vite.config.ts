@@ -88,10 +88,10 @@ export default defineConfig({
     ],
   },
   // Performance hints
-  server: { allowedHosts: true,
-    // Bind to all interfaces so WebContainer's server-ready event fires.
-    host: true,
-    port: 5173,
+  server: {
+    allowedHosts: true,
+    host: "0.0.0.0",
+    port: 3000,
     // Keep HMR on, but disable full-screen error overlay
     hmr: {
       overlay: false,
