@@ -15,7 +15,7 @@ import { getPattern } from "@/lib/game/patterns";
 import { cabinet, type LocalScore } from "@/lib/cabinet";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Copy, RotateCcw, Share2, Trophy } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -69,17 +69,19 @@ export default function Play() {
   const recordPlay = useMutation(api.games.recordPlay);
   const showcase = useQuery(api.games.listShowcase);
 
-  const [counted, setCounted] = useState(false);
+  const countedPlayRef = useRef<string | null>(null);
   useEffect(() => {
-    if (ledgerId && resolvedGame && !counted) {
-      setCounted(true);
-      void recordPlay({ id: ledgerId });
+    if (ledgerId && resolvedGame && countedPlayRef.current !== ledgerId) {
+      countedPlayRef.current = ledgerId;
+      void recordPlay({ id: ledgerId, shareToken });
     }
-  }, [ledgerId, resolvedGame, counted, recordPlay]);
+  }, [ledgerId, resolvedGame, recordPlay, shareToken]);
 
   const leaderboard = useQuery(
     api.games.leaderboard,
-    ledgerId ? { gameId: ledgerId, limit: 10 } : "skip",
+    ledgerId
+      ? { gameId: ledgerId, limit: 10, shareToken }
+      : "skip",
   );
   const submitScore = useMutation(api.games.submitScore);
   const [submitting, setSubmitting] = useState(false);
@@ -87,7 +89,6 @@ export default function Play() {
   // Reset per-cartridge flow state when navigating between cartridges
   // client-side (this component is reused across /play/:id param changes).
   useEffect(() => {
-    setCounted(false);
     setSubmittedScore(null);
   }, [ledgerId]);
 
@@ -95,7 +96,12 @@ export default function Play() {
     if (!ledgerId || submitting) return;
     setSubmitting(true);
     try {
-      const result = await submitScore({ gameId: ledgerId, score, combo: 0 });
+      const result = await submitScore({
+        gameId: ledgerId,
+        score,
+        combo: 0,
+        shareToken,
+      });
       setSubmittedScore(score);
       toast.success(
         score >= result.best
@@ -150,9 +156,11 @@ export default function Play() {
 
   const shareUrl = looseSpec
     ? `${window.location.origin}/play/standalone?code=${looseCode}`
-    : ledgerId
-      ? `${window.location.origin}/play/${ledgerId}`
-      : "";
+    : shareToken
+      ? `${window.location.origin}/s/${shareToken}`
+      : ledgerId
+        ? `${window.location.origin}/play/${ledgerId}`
+        : "";
 
   const handleShare = async () => {
     if (!shareUrl) return;
@@ -296,7 +304,9 @@ export default function Play() {
                     spec={spec}
                     onRunEnd={handleRunEnd}
                     onSubmitScore={
-                      ledgerId && !submittedScore ? handleSubmitScore : undefined
+                      ledgerId && submittedScore === null
+                        ? handleSubmitScore
+                        : undefined
                     }
                   />
                 </CardContent>

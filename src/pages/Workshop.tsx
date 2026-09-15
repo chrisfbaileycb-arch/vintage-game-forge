@@ -52,13 +52,12 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 export default function Workshop() {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const press = useMutation(api.games.press);
   const transferRequested = searchParams.get("transfer") === "1";
@@ -103,7 +102,7 @@ export default function Workshop() {
         {isLoading ? (
           <p className="py-16 text-muted-foreground">Consulting the ledger…</p>
         ) : isAuthenticated ? (
-          <ServerWorkshop userName={user?.name || user?.email || null} />
+          <ServerWorkshop />
         ) : (
           <LocalCabinet />
         )}
@@ -116,16 +115,20 @@ export default function Workshop() {
 // Signed-in: the server-persisted Workshop (unchanged behaviour)
 // ---------------------------------------------------------------------------
 
-function ServerWorkshop({ userName }: { userName: string | null }) {
+function ServerWorkshop() {
   const navigate = useNavigate();
   const games = useQuery(api.games.listMine);
   const removeGame = useMutation(api.games.remove);
   const renameGame = useMutation(api.games.rename);
   const setPublicGame = useMutation(api.games.setPublic);
-  const remasterGame = useMutation(api.games.remaster);
   const createShare = useMutation(api.games.createShareLink);
   const revokeShare = useMutation(api.games.revokeShareLink);
   const stats = useQuery(api.games.myStats);
+
+  const [sharing, setSharing] = useState<{
+    id: Id<"gameDesigns">;
+    title: string;
+  } | null>(null);
 
   // Live state of the open share dialog's cartridge: the active token (if
   // any) and its URL. Revoking updates this reactively.
@@ -138,10 +141,6 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
   const [playing, setPlaying] = useState<CartridgeSpec | null>(null);
   const [playingTitle, setPlayingTitle] = useState("");
   const [renaming, setRenaming] = useState<{
-    id: Id<"gameDesigns">;
-    title: string;
-  } | null>(null);
-  const [sharing, setSharing] = useState<{
     id: Id<"gameDesigns">;
     title: string;
   } | null>(null);
@@ -505,23 +504,17 @@ function ServerWorkshop({ userName }: { userName: string | null }) {
 
 function LocalCabinet() {
   const navigate = useNavigate();
-  const [games, setGames] = useState<LocalCartridge[]>([]);
+  const [games, setGames] = useState<LocalCartridge[]>(() =>
+    cabinet.listCartridges(),
+  );
   const [playing, setPlaying] = useState<LocalCartridge | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
     null,
   );
 
-  const refresh = useCallback(() => {
+  const refresh = () => {
     setGames(cabinet.listCartridges());
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  };
 
   function handleDelete(id: string) {
     cabinet.removeCartridge(id);

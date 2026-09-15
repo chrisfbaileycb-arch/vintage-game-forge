@@ -138,14 +138,7 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
-              <Route
-                path="/workshop"
-                element={
-                  <RequireAuth>
-                    <Workshop />
-                  </RequireAuth>
-                }
-              />
+              <Route path="/workshop" element={<Workshop />} />
               <Route path="/moulds" element={<Moulds />} />
               <Route path="/patterns" element={<Patterns />} />
               <Route path="/about" element={<About />} />

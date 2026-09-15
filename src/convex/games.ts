@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { MutationCtx, mutation, query } from "./_generated/server";
+import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
 import { normalizeSpec } from "../lib/game/moulds";
 
 /**
@@ -24,6 +24,21 @@ function makeShareToken(): string {
  */
 function sanitizeSpec(raw: unknown): Record<string, unknown> {
   return { ...normalizeSpec((raw ?? {}) as Record<string, unknown>) };
+}
+
+async function hasActiveShare(
+  ctx: Pick<QueryCtx, "db">,
+  gameId: Id<"gameDesigns">,
+  token: string | undefined,
+): Promise<boolean> {
+  if (!token) return false;
+  const normalized = token.trim().slice(0, 64);
+  if (!/^[A-Za-z0-9_-]{10,64}$/.test(normalized)) return false;
+  const link = await ctx.db
+    .query("shareLinks")
+    .withIndex("by_token", (q) => q.eq("token", normalized))
+    .unique();
+  return Boolean(link && link.gameId === gameId && !link.revoked);
 }
 
 /** Bump the per-user aggregate counters (creating the row on first press). */
@@ -171,12 +186,22 @@ export const remove = mutation({
   },
 });
 
-/** Count a play when someone opens the cabinet. */
+/** Count a play when someone opens a public cartridge or its owner's cabinet. */
 export const recordPlay = mutation({
-  args: { id: v.id("gameDesigns") },
+  args: {
+    id: v.id("gameDesigns"),
+    shareToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const game = await ctx.db.get(args.id);
     if (!game) return;
+    if (
+      !game.isPublic &&
+      !(await hasActiveShare(ctx, args.id, args.shareToken))
+    ) {
+      const userId = await getAuthUserId(ctx);
+      if (!userId || game.userId !== userId) return;
+    }
     await ctx.db.patch(args.id, {
       plays: (game.plays ?? 0) + 1,
       playCount: (game.playCount ?? 0) + 1,
@@ -196,12 +221,19 @@ export const submitScore = mutation({
     gameId: v.id("gameDesigns"),
     score: v.number(),
     combo: v.optional(v.number()),
+    shareToken: v.optional(v.string()),
     playerName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     const game = await ctx.db.get(args.gameId);
     if (!game) throw new Error("No such cartridge.");
+    if (!game.isPublic) {
+      const shared = await hasActiveShare(ctx, args.gameId, args.shareToken);
+      if (!shared && (!userId || game.userId !== userId)) {
+        throw new Error("This cartridge is private.");
+      }
+    }
 
     let playerName = (args.playerName ?? "").trim().slice(0, 24);
     if (!playerName) {
@@ -319,7 +351,7 @@ export const getByShareToken = query({
       .unique();
     if (!link || link.revoked) return null;
     const game = await ctx.db.get(link.gameId);
-    if (!game || !game.isPublic) return null;
+    if (!game) return null;
     return game;
   },
 });
@@ -350,6 +382,7 @@ export const browse = query({
       return await ctx.db
         .query("gameDesigns")
         .withIndex("by_mould", (q) => q.eq("mould", args.mould!))
+        .filter((q) => q.eq(q.field("isPublic"), true))
         .order("desc")
         .take(24);
     }
@@ -372,18 +405,33 @@ export const listShowcase = query({
   },
 });
 
-/** Fetch one cartridge for the public play page. */
+/** Fetch one cartridge for the public play page or its owner's cabinet page. */
 export const getPublic = query({
   args: { id: v.id("gameDesigns") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const game = await ctx.db.get(args.id);
+    if (!game) return null;
+    if (game.isPublic) return game;
+    const userId = await getAuthUserId(ctx);
+    return userId && game.userId === userId ? game : null;
   },
 });
 
-/** Top scores for one cartridge. */
+/** Top scores for one public cartridge or its owner's private cartridge. */
 export const leaderboard = query({
-  args: { gameId: v.id("gameDesigns"), limit: v.optional(v.number()) },
+  args: {
+    gameId: v.id("gameDesigns"),
+    limit: v.optional(v.number()),
+    shareToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
+    const game = await ctx.db.get(args.gameId);
+    if (!game) return [];
+    if (!game.isPublic) {
+      const shared = await hasActiveShare(ctx, args.gameId, args.shareToken);
+      const userId = await getAuthUserId(ctx);
+      if (!shared && (!userId || game.userId !== userId)) return [];
+    }
     const limit = Math.min(20, Math.max(1, args.limit ?? 10));
     return await ctx.db
       .query("scores")

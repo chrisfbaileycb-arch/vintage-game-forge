@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import {
   createCartridge,
   emptyInput,
-  type CartridgeHandle,
   type EngineInput,
   type HudState,
 } from "@/lib/game/engine";
@@ -99,6 +98,7 @@ function CartridgeView({
     fire: false,
   });
   const pauseEdgeRef = useRef(false);
+  const pauseHeldRef = useRef(false);
   const gamepadActiveRef = useRef(false);
   const [hud, setHud] = useState<HudState | null>(null);
   const [muted, setMuted] = useState(!loadAudio().bells);
@@ -239,7 +239,12 @@ function CartridgeView({
       for (const action of ALL_ACTIONS) {
         if (b[action].includes(e.key)) {
           if (action === "pause") {
-            if (down) cartridge.togglePause();
+            if (down && !pauseHeldRef.current) {
+              pauseHeldRef.current = true;
+              cartridge.togglePause();
+            } else if (!down) {
+              pauseHeldRef.current = false;
+            }
           } else {
             input[action] = down;
           }
@@ -258,6 +263,7 @@ function CartridgeView({
       input.up = false;
       input.down = false;
       input.fire = false;
+      pauseHeldRef.current = false;
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
