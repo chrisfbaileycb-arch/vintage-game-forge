@@ -8,10 +8,10 @@ import {
   MOULD_OPTIONS,
   catalogueNumber,
   decodeSpec,
-  normalizeSpec,
   type CartridgeSpec,
 } from "@/lib/game/moulds";
 import { getPattern } from "@/lib/game/patterns";
+import { resolvePlaySpec } from "@/lib/game/playSetup";
 import { cabinet, type LocalScore } from "@/lib/cabinet";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Copy, RotateCcw, Share2, Trophy } from "lucide-react";
@@ -23,19 +23,6 @@ function isId(value: string): value is Id<"gameDesigns"> {
   // Convex ids are 32 lowercase base32-ish chars; be permissive but bounded.
   return /^[a-z0-9]{16,48}$/.test(value);
 }
-
-/** The Foundry's own house cartridge, shown when no code is supplied. */
-const HOUSE_SPEC: CartridgeSpec = normalizeSpec({
-  mould: "breakout",
-  title: "THE FOUNDRY SAMPLE",
-  brickRows: 5,
-  handling: 2,
-  hazards: 3,
-  pace: 3,
-  palette: "sepia",
-  frame: "plaque",
-  twist: "none",
-});
 
 export default function Play() {
   const { cartridgeId, shareToken } = useParams();
@@ -116,15 +103,13 @@ export default function Play() {
     }
   };
 
-  const spec: CartridgeSpec | null = looseSpec
-    ? looseSpec
-    : game
-      ? normalizeSpec(game.spec)
-      : sharedGame
-        ? normalizeSpec(sharedGame.spec)
-        : cartridgeId === "standalone"
-          ? HOUSE_SPEC
-          : null;
+  const spec: CartridgeSpec | null = resolvePlaySpec({
+    looseSpec,
+    game,
+    sharedGame,
+    cartridgeId,
+    shareToken,
+  });
 
   // Local run ledger: every finished run is recorded in this browser,
   // whether or not the cartridge lives on a server. Server-ledger filing
@@ -152,7 +137,7 @@ export default function Play() {
   const noCartridge =
     (validId && game === null) ||
     (Boolean(shareToken) && sharedGame === null) ||
-    (Boolean(cartridgeId) && !validId && !looseSpec && cartridgeId !== "standalone");
+    (Boolean(cartridgeId) && !validId && !looseSpec);
 
   const shareUrl = looseSpec
     ? `${window.location.origin}/play/standalone?code=${looseCode}`

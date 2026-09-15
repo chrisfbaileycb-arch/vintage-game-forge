@@ -170,6 +170,16 @@ function CartridgeView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Release whichever engine is live at unmount. The mount effect above only
+  // owns the one it started, so an engine begun later by a settings change
+  // (music toggled on mid-run) would otherwise leave its AudioContext open.
+  useEffect(() => {
+    return () => {
+      musicRef.current?.dispose();
+      musicRef.current = null;
+    };
+  }, []);
+
   // ---- rAF loop -----------------------------------------------------------
 
   useEffect(() => {
