@@ -91,8 +91,8 @@ export default function Play() {
       });
       setSubmittedScore(score);
       toast.success(
-        score >= result.best
-          ? "A new house record!"
+        result.improved
+          ? "A new personal best!"
           : "Score filed to the ledger.",
         { description: `Best on this cartridge: ${result.best}` },
       );
@@ -132,6 +132,11 @@ export default function Play() {
       outcome: result.outcome,
     });
     setLocalScores(cabinet.listScores(ledgerId ?? null, patternId));
+    // A finished run re-opens filing, so a player can file a fresh personal
+    // best after every run rather than only once per visit. Filing stays
+    // one-per-run: `submittedScore` hides the button again until the next run
+    // ends, so the same run can never be filed twice.
+    setSubmittedScore(null);
   }
 
   const noCartridge =

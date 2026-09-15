@@ -254,14 +254,22 @@ export const submitScore = mutation({
       combo: Math.max(0, Math.min(999, Math.round(args.combo ?? 0))),
       createdAt: Date.now(),
     });
+    const previousBest = game.bestScore ?? 0;
     await ctx.db.patch(game._id, {
       playCount: (game.playCount ?? 0) + 1,
-      bestScore: Math.max(game.bestScore ?? 0, score),
+      bestScore: Math.max(previousBest, score),
     });
     if (userId) {
       await bumpCounter(ctx, userId, { plays: 1, totalScore: score, bestScore: score });
     }
-    return { score, best: Math.max(game.bestScore ?? 0, score) };
+    // `best` is the cartridge's new best (a tie leaves it unchanged), while
+    // `improved` says whether this run actually beat the previous one — so the
+    // client can greet a genuine personal best without celebrating a tie.
+    return {
+      score,
+      best: Math.max(previousBest, score),
+      improved: score > previousBest,
+    };
   },
 });
 
