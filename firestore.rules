@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Custom retro arcade games
+    match /games/{gameId} {
+      allow read: if true;
+      allow create: if (request.auth != null && request.resource.data.creatorId == request.auth.uid) ||
+                      (request.auth == null && request.resource.data.creatorId is string && request.resource.data.creatorId.size() > 0 && request.resource.data.creatorId.size() <= 128);
+      allow update: if (request.auth != null && resource.data.creatorId == request.auth.uid) ||
+                      (request.auth == null && resource.data.creatorId is string && resource.data.creatorId == request.resource.data.creatorId);
+      allow delete: if (request.auth != null && resource.data.creatorId == request.auth.uid) ||
+                      (request.auth == null && resource.data.creatorId is string);
+    }
+
+    // High scores leaderboard
+    match /scores/{scoreId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+  }
+}

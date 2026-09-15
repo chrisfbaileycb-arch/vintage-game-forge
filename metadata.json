@@ -1,0 +1,6 @@
+{
+  "name": "REPLAY",
+  "description": "REPLAY is a retro gaming and development platform — play 8-bit and 16-bit classics, build custom cartridges, and download or load standalone .replay system ROM files directly in the browser.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
